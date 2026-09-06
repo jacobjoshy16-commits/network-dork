@@ -1,0 +1,29 @@
+alerts:
+  path: fixtures/alerts/alerts.jsonl
+
+context:
+  zeek_directory: fixtures/zeek
+  window_days: 7
+
+llm:
+  base_url: http://127.0.0.1:11434
+  model: qwen2.5:3b-instruct
+  temperature: 0.0
+  timeout_seconds: 120.0
+  max_attempts: 3
+
+storage:
+  state_path: var/state.sqlite3
+  reports_path: var/reports.sqlite3
+  audit_path: var/audit.jsonl
+
+adapters:
+  alerts:
+    file: network_dork.adapters.alerts.file:FileAlertSource
+  context:
+    "null": network_dork.adapters.context.null:NullContextProvider
+    zeek_logs: network_dork.adapters.context.zeek_logs:ZeekLogsContextProvider
+  llm:
+    fake: network_dork.adapters.llm.fake:FakeLLMClient
+  sinks:
+    sqlite: network_dork.adapters.sinks.sqlite:SQLiteReportSink
