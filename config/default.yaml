@@ -11,19 +11,63 @@ llm:
   temperature: 0.0
   timeout_seconds: 120.0
   max_attempts: 3
+  num_ctx: 8192
+  num_predict: 2048
+  max_input_chars: 32000
+  max_response_bytes: 1048576
 
 storage:
   state_path: var/state.sqlite3
   reports_path: var/reports.sqlite3
   audit_path: var/audit.jsonl
 
+runtime:
+  alert_adapter: file
+  context_adapter: zeek_logs
+  llm_adapter: ollama
+  sink_adapter: sqlite
+
+# Trusted Python constructor references and keyword arguments.
+# ${...} references preserve the referenced value's type.
+# Adapters are not discovered from alerts or model output.
 adapters:
   alerts:
-    file: network_dork.adapters.alerts.file:FileAlertSource
+    file:
+      class_path: network_dork.adapters.alerts.file:FileAlertSource
+      options:
+        path: "${alerts.path}"
+
   context:
-    "null": network_dork.adapters.context.null:NullContextProvider
-    zeek_logs: network_dork.adapters.context.zeek_logs:ZeekLogsContextProvider
+    "null":
+      class_path: network_dork.adapters.context.null:NullContextProvider
+      options:
+        window_days: "${context.window_days}"
+    zeek_logs:
+      class_path: network_dork.adapters.context.zeek_logs:ZeekLogsContextProvider
+      options:
+        directory: "${context.zeek_directory}"
+        prior_alerts_path: "${alerts.path}"
+        window_days: "${context.window_days}"
+        audit: "${services.audit}"
+
   llm:
-    fake: network_dork.adapters.llm.fake:FakeLLMClient
+    fake:
+      class_path: network_dork.adapters.llm.fake:FakeLLMClient
+    ollama:
+      class_path: network_dork.adapters.llm.ollama:OllamaClient
+      options:
+        base_url: "${llm.base_url}"
+        model: "${llm.model}"
+        temperature: "${llm.temperature}"
+        timeout_seconds: "${llm.timeout_seconds}"
+        num_ctx: "${llm.num_ctx}"
+        num_predict: "${llm.num_predict}"
+        max_input_chars: "${llm.max_input_chars}"
+        max_response_bytes: "${llm.max_response_bytes}"
+
   sinks:
-    sqlite: network_dork.adapters.sinks.sqlite:SQLiteReportSink
+    sqlite:
+      class_path: network_dork.adapters.sinks.sqlite:SQLiteReportSink
+      options:
+        path: "${storage.reports_path}"
+        audit: "${services.audit}"
