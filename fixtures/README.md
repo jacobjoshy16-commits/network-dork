@@ -23,6 +23,11 @@ enter the model prompt. Each NIST mapping is one reference label for
 evaluating this synthetic scenario; NIST controls are not unique
 attack classifications.
 
+`source_samples/` holds separate source-native alert examples for the
+Suricata EVE, Zeek notice, and OpenSearch alert adapters. Those files
+exercise parser behavior only and are not used as the normalized
+investigation corpus.
+
 | Alert | Origin | Authored scenario |
 |---|---|---|
 | syn-001 | Synthetic | Existing alert for periodic HTTP callback traffic |

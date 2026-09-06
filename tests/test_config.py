@@ -3,10 +3,13 @@ from pydantic import ValidationError
 
 from network_dork.config import load_config
 
+
 def test_defaults():
     settings = load_config(environ={})
     assert settings.context.window_days == 7
     assert settings.llm.model == "qwen2.5:3b-instruct"
+    assert settings.opensearch.reports_index == "network-dork-reports"
+
 
 def test_yaml_then_environment(tmp_path):
     overlay = tmp_path / "override.yaml"
@@ -19,21 +22,36 @@ def test_yaml_then_environment(tmp_path):
     assert settings.llm.temperature == 0.3
     assert settings.context.window_days == 7
 
+
 def test_environment_selects_yaml(tmp_path):
     overlay = tmp_path / "override.yaml"
     overlay.write_text("context:\n  window_days: 4\n")
     settings = load_config(environ={"NETWORK_DORK_CONFIG": str(overlay)})
     assert settings.context.window_days == 4
 
+
+def test_opensearch_environment_overrides():
+    settings = load_config(
+        environ={
+            "NETWORK_DORK_OPENSEARCH_BASE_URL": "http://127.0.0.1:9201",
+            "NETWORK_DORK_OPENSEARCH_MAX_HITS": "250",
+        }
+    )
+    assert settings.opensearch.base_url == "http://127.0.0.1:9201"
+    assert settings.opensearch.max_hits == 250
+
+
 def test_invalid_environment_value():
     with pytest.raises(ValidationError):
         load_config(environ={"NETWORK_DORK_MAX_ATTEMPTS": "0"})
+
 
 def test_unknown_yaml_field_fails(tmp_path):
     overlay = tmp_path / "override.yaml"
     overlay.write_text("llm:\n  temprature: 0.5\n")
     with pytest.raises(ValidationError):
         load_config(overlay, environ={})
+
 
 def test_credential_identity_reuse_is_rejected():
     with pytest.raises(ValidationError):
@@ -46,6 +64,7 @@ def test_credential_identity_reuse_is_rejected():
             }
         )
 
+
 def test_credential_secret_is_not_in_repr():
     settings = load_config(
         environ={
@@ -54,6 +73,7 @@ def test_credential_secret_is_not_in_repr():
         }
     )
     assert "a-sensitive-password" not in repr(settings)
+
 
 def test_yaml_requires_mapping(tmp_path):
     overlay = tmp_path / "override.yaml"

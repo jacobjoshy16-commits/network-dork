@@ -15,23 +15,21 @@ from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 import yaml
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    SecretStr,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+
 
 class SettingsModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+
 class AlertsSettings(SettingsModel):
     path: Path = Path("fixtures/alerts/alerts.jsonl")
+
 
 class ContextSettings(SettingsModel):
     zeek_directory: Path = Path("fixtures/zeek")
     window_days: int = Field(default=7, ge=1, le=3650)
+
 
 class LLMSettings(SettingsModel):
     base_url: str = "http://127.0.0.1:11434"
@@ -42,14 +40,26 @@ class LLMSettings(SettingsModel):
     num_ctx: int = Field(default=8192, ge=2048, le=32768)
     num_predict: int = Field(default=2048, ge=256, le=8192)
     max_input_chars: int = Field(default=32000, ge=1024, le=500000)
-    max_response_bytes: int = Field(
-        default=1048576, ge=1024, le=8388608
-    )
+    max_response_bytes: int = Field(default=1048576, ge=1024, le=8388608)
+
+
+class OpenSearchSettings(SettingsModel):
+    base_url: str = "http://127.0.0.1:9200"
+    alerts_index: str = Field(default="security-alerts-*", min_length=1)
+    flows_index: str = Field(default="network-flows-*", min_length=1)
+    dns_index: str = Field(default="dns-*", min_length=1)
+    auth_index: str = Field(default="auth-*", min_length=1)
+    reports_index: str = Field(default="network-dork-reports", min_length=1)
+    timeout_seconds: float = Field(default=30.0, gt=0, le=3600)
+    max_hits: int = Field(default=500, ge=1, le=5000)
+    max_response_bytes: int = Field(default=1048576, ge=1024, le=8388608)
+
 
 class StorageSettings(SettingsModel):
     state_path: Path = Path("var/state.sqlite3")
     reports_path: Path = Path("var/reports.sqlite3")
     audit_path: Path = Path("var/audit.jsonl")
+
 
 class Credentials(SettingsModel):
     telemetry_username: str | None = None
@@ -58,24 +68,21 @@ class Credentials(SettingsModel):
     report_password: SecretStr | None = None
 
     @model_validator(mode="after")
-    def separate_identities(self) -> Credentials:
-        if (
-            self.telemetry_username
-            and self.telemetry_username == self.report_username
-        ):
+    def separate_identities(self) -> "Credentials":
+        if self.telemetry_username and self.telemetry_username == self.report_username:
             raise ValueError("Telemetry and report usernames must differ")
         for prefix in ("telemetry", "report"):
             username = getattr(self, f"{prefix}_username")
             password = getattr(self, f"{prefix}_password")
             if bool(username) != bool(password):
-                raise ValueError(
-                    f"{prefix} username and password must be paired"
-                )
+                raise ValueError(f"{prefix} username and password must be paired")
         return self
+
 
 class AdapterDefinition(SettingsModel):
     class_path: str = Field(min_length=3)
     options: dict[str, Any] = Field(default_factory=dict)
+
 
 class RuntimeSettings(SettingsModel):
     alert_adapter: str = "file"
@@ -83,16 +90,19 @@ class RuntimeSettings(SettingsModel):
     llm_adapter: str = "ollama"
     sink_adapter: str = "sqlite"
 
+
 class Settings(SettingsModel):
     alerts: AlertsSettings = Field(default_factory=AlertsSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
+    opensearch: OpenSearchSettings = Field(default_factory=OpenSearchSettings)
     storage: StorageSettings = Field(default_factory=StorageSettings)
     credentials: Credentials = Field(default_factory=Credentials)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
-    adapters: dict[
-        str, dict[str, str | AdapterDefinition]
-    ] = Field(default_factory=dict)
+    adapters: dict[str, dict[str, str | AdapterDefinition]] = Field(
+        default_factory=dict
+    )
+
 
 ENV_PATHS = {
     "NETWORK_DORK_ALERTS_PATH": ("alerts", "path"),
@@ -107,15 +117,26 @@ ENV_PATHS = {
     "NETWORK_DORK_NUM_PREDICT": ("llm", "num_predict"),
     "NETWORK_DORK_MAX_INPUT_CHARS": ("llm", "max_input_chars"),
     "NETWORK_DORK_MAX_RESPONSE_BYTES": ("llm", "max_response_bytes"),
+    "NETWORK_DORK_OPENSEARCH_BASE_URL": ("opensearch", "base_url"),
+    "NETWORK_DORK_OPENSEARCH_ALERTS_INDEX": ("opensearch", "alerts_index"),
+    "NETWORK_DORK_OPENSEARCH_FLOWS_INDEX": ("opensearch", "flows_index"),
+    "NETWORK_DORK_OPENSEARCH_DNS_INDEX": ("opensearch", "dns_index"),
+    "NETWORK_DORK_OPENSEARCH_AUTH_INDEX": ("opensearch", "auth_index"),
+    "NETWORK_DORK_OPENSEARCH_REPORTS_INDEX": ("opensearch", "reports_index"),
+    "NETWORK_DORK_OPENSEARCH_TIMEOUT_SECONDS": (
+        "opensearch",
+        "timeout_seconds",
+    ),
+    "NETWORK_DORK_OPENSEARCH_MAX_HITS": ("opensearch", "max_hits"),
+    "NETWORK_DORK_OPENSEARCH_MAX_RESPONSE_BYTES": (
+        "opensearch",
+        "max_response_bytes",
+    ),
     "NETWORK_DORK_STATE_PATH": ("storage", "state_path"),
     "NETWORK_DORK_REPORTS_PATH": ("storage", "reports_path"),
     "NETWORK_DORK_AUDIT_PATH": ("storage", "audit_path"),
-    "NETWORK_DORK_TELEMETRY_USERNAME": (
-        "credentials", "telemetry_username"
-    ),
-    "NETWORK_DORK_TELEMETRY_PASSWORD": (
-        "credentials", "telemetry_password"
-    ),
+    "NETWORK_DORK_TELEMETRY_USERNAME": ("credentials", "telemetry_username"),
+    "NETWORK_DORK_TELEMETRY_PASSWORD": ("credentials", "telemetry_password"),
     "NETWORK_DORK_REPORT_USERNAME": ("credentials", "report_username"),
     "NETWORK_DORK_REPORT_PASSWORD": ("credentials", "report_password"),
     "NETWORK_DORK_ALERT_ADAPTER": ("runtime", "alert_adapter"),
@@ -123,6 +144,7 @@ ENV_PATHS = {
     "NETWORK_DORK_LLM_ADAPTER": ("runtime", "llm_adapter"),
     "NETWORK_DORK_SINK_ADAPTER": ("runtime", "sink_adapter"),
 }
+
 
 def read_yaml(path: Path) -> dict[str, Any]:
     value = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -132,6 +154,7 @@ def read_yaml(path: Path) -> dict[str, Any]:
         raise ValueError(f"{path}: expected a YAML mapping")
     return value
 
+
 def merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     result = deepcopy(base)
     for key, value in overlay.items():
@@ -140,6 +163,7 @@ def merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
         else:
             result[key] = value
     return result
+
 
 def load_config(
     path: Path | None = None,
@@ -162,8 +186,7 @@ def load_config(
             existing[key] = env[variable]
     return Settings.model_validate(data)
 
-# Do not use ipaddress.is_private: its definition also includes address
-# categories that are not LAN destinations permitted by this project.
+
 LOCAL_NETWORKS = (
     ipaddress.ip_network("127.0.0.0/8"),
     ipaddress.ip_network("10.0.0.0/8"),
@@ -173,25 +196,24 @@ LOCAL_NETWORKS = (
     ipaddress.ip_network("fc00::/7"),
 )
 
+
 class LocalEndpointError(ValueError):
     pass
 
+
 @dataclass(frozen=True)
 class ResolvedLocalEndpoint:
-    # Transport connects here, never to the original hostname.
     connect_url: str
     host_header: str
     server_hostname: str
 
-def _allowed_address(
-    value: str,
-) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+
+def _allowed_address(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
     try:
         address = ipaddress.ip_address(value)
     except ValueError as exc:
         raise LocalEndpointError("Invalid endpoint IP address") from exc
     if getattr(address, "ipv4_mapped", None) is not None:
-        # Avoid alternate representations of IPv4 bypassing policy.
         raise LocalEndpointError("IPv4-mapped IPv6 endpoints are not allowed")
     if not any(
         address.version == network.version and address in network
@@ -202,16 +224,13 @@ def _allowed_address(
         )
     return address
 
+
 def resolve_local_endpoint(
     base_url: str,
     *,
     hosts_path: Path = Path("/etc/hosts"),
 ) -> ResolvedLocalEndpoint:
-    """Resolve without DNS, then pin the connection to a numeric IP.
-
-    Names other than localhost must have an explicit /etc/hosts entry.
-    Every matching address must satisfy the local-only policy.
-    """
+    """Resolve without DNS, then pin the connection to a numeric IP."""
     if (
         not base_url
         or any(character.isspace() for character in base_url)
@@ -272,17 +291,10 @@ def resolve_local_endpoint(
             )
         addresses = [_allowed_address(value) for value in matches]
 
-    # Prefer IPv4 for Docker host-gateway deployments when both exist.
     addresses.sort(key=lambda address: (address.version, int(address)))
     chosen = addresses[0]
-    numeric_authority = (
-        f"[{chosen}]" if chosen.version == 6 else str(chosen)
-    )
-    hostname_authority = (
-        f"[{normalized_host}]"
-        if ":" in normalized_host
-        else normalized_host
-    )
+    numeric_authority = f"[{chosen}]" if chosen.version == 6 else str(chosen)
+    hostname_authority = f"[{normalized_host}]" if ":" in normalized_host else normalized_host
     return ResolvedLocalEndpoint(
         connect_url=f"{parsed.scheme}://{numeric_authority}:{port}",
         host_header=f"{hostname_authority}:{port}",

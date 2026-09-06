@@ -16,6 +16,17 @@ llm:
   max_input_chars: 32000
   max_response_bytes: 1048576
 
+opensearch:
+  base_url: http://127.0.0.1:9200
+  alerts_index: security-alerts-*
+  flows_index: network-flows-*
+  dns_index: dns-*
+  auth_index: auth-*
+  reports_index: network-dork-reports
+  timeout_seconds: 30.0
+  max_hits: 500
+  max_response_bytes: 1048576
+
 storage:
   state_path: var/state.sqlite3
   reports_path: var/reports.sqlite3
@@ -27,15 +38,30 @@ runtime:
   llm_adapter: ollama
   sink_adapter: sqlite
 
-# Trusted Python constructor references and keyword arguments.
-# ${...} references preserve the referenced value's type.
-# Adapters are not discovered from alerts or model output.
 adapters:
   alerts:
     file:
       class_path: network_dork.adapters.alerts.file:FileAlertSource
       options:
         path: "${alerts.path}"
+    suricata_eve:
+      class_path: network_dork.adapters.alerts.suricata_eve:SuricataEveAlertSource
+      options:
+        path: fixtures/source_samples/suricata/eve.json
+    zeek_notice:
+      class_path: network_dork.adapters.alerts.zeek_notice:ZeekNoticeAlertSource
+      options:
+        path: fixtures/source_samples/zeek/notice.log
+    opensearch:
+      class_path: network_dork.adapters.alerts.opensearch:OpenSearchAlertSource
+      options:
+        base_url: "${opensearch.base_url}"
+        index: "${opensearch.alerts_index}"
+        username: "${credentials.telemetry_username}"
+        password: "${credentials.telemetry_password}"
+        timeout_seconds: "${opensearch.timeout_seconds}"
+        max_hits: "${opensearch.max_hits}"
+        max_response_bytes: "${opensearch.max_response_bytes}"
 
   context:
     "null":
@@ -49,6 +75,21 @@ adapters:
         prior_alerts_path: "${alerts.path}"
         window_days: "${context.window_days}"
         audit: "${services.audit}"
+    opensearch:
+      class_path: network_dork.adapters.context.opensearch:OpenSearchContextProvider
+      options:
+        base_url: "${opensearch.base_url}"
+        flows_index: "${opensearch.flows_index}"
+        dns_index: "${opensearch.dns_index}"
+        auth_index: "${opensearch.auth_index}"
+        prior_alerts_index: "${opensearch.alerts_index}"
+        username: "${credentials.telemetry_username}"
+        password: "${credentials.telemetry_password}"
+        audit: "${services.audit}"
+        window_days: "${context.window_days}"
+        timeout_seconds: "${opensearch.timeout_seconds}"
+        max_hits: "${opensearch.max_hits}"
+        max_response_bytes: "${opensearch.max_response_bytes}"
 
   llm:
     fake:
@@ -71,3 +112,18 @@ adapters:
       options:
         path: "${storage.reports_path}"
         audit: "${services.audit}"
+    jsonl:
+      class_path: network_dork.adapters.sinks.jsonl:JsonlReportSink
+      options:
+        path: "${storage.reports_path}"
+        audit: "${services.audit}"
+    opensearch:
+      class_path: network_dork.adapters.sinks.opensearch:OpenSearchReportSink
+      options:
+        base_url: "${opensearch.base_url}"
+        index: "${opensearch.reports_index}"
+        username: "${credentials.report_username}"
+        password: "${credentials.report_password}"
+        audit: "${services.audit}"
+        timeout_seconds: "${opensearch.timeout_seconds}"
+        max_response_bytes: "${opensearch.max_response_bytes}"

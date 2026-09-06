@@ -1,0 +1,22 @@
+services:
+  network-dork:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    environment:
+      NETWORK_DORK_CONFIG: /workspace/config/default.yaml
+      NETWORK_DORK_OLLAMA_BASE_URL: ${NETWORK_DORK_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      NETWORK_DORK_MODEL: ${NETWORK_DORK_MODEL:-}
+      NETWORK_DORK_TEMPERATURE: ${NETWORK_DORK_TEMPERATURE:-}
+      NETWORK_DORK_TIMEOUT_SECONDS: ${NETWORK_DORK_TIMEOUT_SECONDS:-}
+      NETWORK_DORK_MAX_ATTEMPTS: ${NETWORK_DORK_MAX_ATTEMPTS:-}
+      NETWORK_DORK_NUM_CTX: ${NETWORK_DORK_NUM_CTX:-}
+      NETWORK_DORK_NUM_PREDICT: ${NETWORK_DORK_NUM_PREDICT:-}
+      NETWORK_DORK_MAX_INPUT_CHARS: ${NETWORK_DORK_MAX_INPUT_CHARS:-}
+      NETWORK_DORK_MAX_RESPONSE_BYTES: ${NETWORK_DORK_MAX_RESPONSE_BYTES:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["sh", "-lc", "tail -f /dev/null"]
