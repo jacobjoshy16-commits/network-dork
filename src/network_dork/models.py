@@ -124,13 +124,34 @@ class InvestigationReport(DataModel):
     suggested_next_step: NonEmpty
     model_version: NonEmpty
 
+class RuntimeIdentity(DataModel):
+    """Who and what produced an audit record.
+
+    NIST SP 800-53 AU-3 requires an audit record to identify the subject
+    associated with the event. The audit log stamps this onto every event, so
+    individual adapters do not have to carry it.
+    """
+
+    run_id: NonEmpty
+    user: NonEmpty
+    host: NonEmpty
+    pid: int = Field(ge=0)
+
 class AuditEvent(DataModel):
     timestamp: AwareDatetime
     alert_id: AlertId
     operation_id: NonEmpty
-    action: Literal["context_query", "report_write", "failure_write"]
+    action: Literal[
+        "context_query",
+        "report_write",
+        "failure_write",
+        "llm_request",
+        "llm_response",
+    ]
     stage: Literal["attempt", "success", "error"]
     parameters: dict[str, Any]
+    # Stamped by the audit log when absent, so callers need not supply it.
+    identity: RuntimeIdentity | None = None
 
 class FailureRecord(DataModel):
     failure_id: NonEmpty

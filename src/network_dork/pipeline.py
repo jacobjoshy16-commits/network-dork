@@ -10,15 +10,19 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 import hashlib
 import json
+import time
 from uuid import uuid4
 
 from network_dork.interfaces import (
     Alert,
     AlertContext,
     AlertSource,
+    AuditEvent,
+    AuditLog,
     ContextProvider,
     FailureRecord,
     FailureStore,
+    GroundingCheck,
     InvestigationReport,
     LLMClient,
     OutcomeReader,
@@ -46,6 +50,10 @@ class InvestigationPipeline:
         state: ProcessedAlertStore,
         prompts: PromptRenderer,
         model_version: str,
+        audit: AuditLog | None = None,
+        grounding: GroundingCheck | None = None,
+        model_digest: str | None = None,
+        record_prompt_bodies: bool = False,
         max_attempts: int = 3,
         lease_seconds: int = 600,
         clock: Callable[[], datetime] | None = None,
@@ -63,10 +71,43 @@ class InvestigationPipeline:
         self.state = state
         self.prompts = prompts
         self.model_version = model_version
+        self.audit = audit
+        self.grounding = grounding
+        self.model_digest = model_digest
+        self.record_prompt_bodies = record_prompt_bodies
         self.max_attempts = max_attempts
         self.lease_seconds = lease_seconds
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.owner = str(uuid4())
+
+    @staticmethod
+    def _sha256(value: str) -> str:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    def _record(
+        self,
+        alert: Alert,
+        operation_id: str,
+        action: str,
+        stage: str,
+        parameters: dict,
+    ) -> None:
+        if self.audit is None:
+            return
+        self.audit.record(
+            AuditEvent(
+                timestamp=self.clock(),
+                alert_id=alert.alert_id,
+                operation_id=operation_id,
+                action=action,
+                stage=stage,
+                parameters={
+                    "model_version": self.model_version,
+                    "model_digest": self.model_digest,
+                    **parameters,
+                },
+            )
+        )
 
     def _renew(self, alert: Alert) -> None:
         if not self.state.renew(
@@ -183,6 +224,25 @@ class InvestigationPipeline:
 
         for attempt in range(1, self.max_attempts + 1):
             self._renew(alert)
+            operation_id = str(uuid4())
+            request = {
+                "attempt": attempt,
+                "max_attempts": self.max_attempts,
+                "system_sha256": self._sha256(system),
+                "user_sha256": self._sha256(user),
+                "prompt_sha256": self._sha256(system + user),
+                "prompt_chars": len(system) + len(user),
+            }
+            if self.record_prompt_bodies:
+                # Off by default: prompts embed telemetry, so full capture is
+                # an explicit deployment choice.
+                request["system"] = system
+                request["user"] = user
+            self._record(
+                alert, operation_id, "llm_request", "attempt", request
+            )
+
+            started = time.monotonic()
             try:
                 raw = self.llm.complete(system, user)
             except Exception as exc:
@@ -191,23 +251,74 @@ class InvestigationPipeline:
                     f"attempt {attempt}: LLM call failed "
                     f"({type(exc).__name__})"
                 )
+                self._record(
+                    alert,
+                    operation_id,
+                    "llm_response",
+                    "error",
+                    {
+                        "attempt": attempt,
+                        "error_type": type(exc).__name__,
+                        "duration_ms": round(
+                            (time.monotonic() - started) * 1000, 3
+                        ),
+                    },
+                )
                 continue
 
+            response = {
+                "attempt": attempt,
+                "response_sha256": self._sha256(raw),
+                "response_chars": len(raw),
+                "duration_ms": round((time.monotonic() - started) * 1000, 3),
+            }
+            if self.record_prompt_bodies:
+                response["response"] = raw
+
             try:
-                return self._validate_response(
+                report = self._validate_response(
                     raw,
                     alert,
                     gathered,
                     self.model_version,
                     user,
                 )
+                if self.grounding is not None:
+                    violations = self.grounding(report, gathered)
+                    if violations:
+                        # Retryable: the schema was met but the prose was not
+                        # supportable, so the model gets another attempt.
+                        raise ValueError(
+                            "ungrounded report: " + "; ".join(violations)
+                        )
             except (ValueError, TypeError) as exc:
                 category = "invalid_model_output"
                 errors.append(
                     f"attempt {attempt}: invalid model output "
                     f"({type(exc).__name__}): {str(exc)[:2000]}"
                 )
+                self._record(
+                    alert,
+                    operation_id,
+                    "llm_response",
+                    "error",
+                    {
+                        **response,
+                        "accepted": False,
+                        "rejection_type": type(exc).__name__,
+                        "rejection": str(exc)[:2000],
+                    },
+                )
                 continue
+
+            self._record(
+                alert,
+                operation_id,
+                "llm_response",
+                "success",
+                {**response, "accepted": True},
+            )
+            return report
 
         return self._failure(alert, self.max_attempts, category, errors)
 

@@ -70,3 +70,10 @@ class ProcessedAlertStore(Protocol):
 
 class PromptRenderer(Protocol):
     def render(self, context: AlertContext) -> tuple[str, str]: ...
+
+class GroundingCheck(Protocol):
+    """Return violations found in a report's prose; empty means acceptable."""
+
+    def __call__(
+        self, report: InvestigationReport, context: AlertContext
+    ) -> list[str]: ...

@@ -27,6 +27,9 @@ opensearch:
   max_hits: 500
   max_response_bytes: 1048576
 
+audit:
+  record_prompt_bodies: false
+
 storage:
   state_path: var/state.sqlite3
   reports_path: var/reports.sqlite3

@@ -55,6 +55,12 @@ class OpenSearchSettings(SettingsModel):
     max_response_bytes: int = Field(default=1048576, ge=1024, le=8388608)
 
 
+class AuditSettings(SettingsModel):
+    # Prompts and model responses embed telemetry. Full-body capture is a
+    # deliberate deployment choice, not the default.
+    record_prompt_bodies: bool = False
+
+
 class StorageSettings(SettingsModel):
     state_path: Path = Path("var/state.sqlite3")
     reports_path: Path = Path("var/reports.sqlite3")
@@ -97,6 +103,7 @@ class Settings(SettingsModel):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     opensearch: OpenSearchSettings = Field(default_factory=OpenSearchSettings)
     storage: StorageSettings = Field(default_factory=StorageSettings)
+    audit: AuditSettings = Field(default_factory=AuditSettings)
     credentials: Credentials = Field(default_factory=Credentials)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     adapters: dict[str, dict[str, str | AdapterDefinition]] = Field(
@@ -131,6 +138,10 @@ ENV_PATHS = {
     "NETWORK_DORK_OPENSEARCH_MAX_RESPONSE_BYTES": (
         "opensearch",
         "max_response_bytes",
+    ),
+    "NETWORK_DORK_AUDIT_RECORD_PROMPT_BODIES": (
+        "audit",
+        "record_prompt_bodies",
     ),
     "NETWORK_DORK_STATE_PATH": ("storage", "state_path"),
     "NETWORK_DORK_REPORTS_PATH": ("storage", "reports_path"),

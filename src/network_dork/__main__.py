@@ -17,8 +17,9 @@ from pydantic import BaseModel, SecretStr
 import structlog
 import typer
 
-from network_dork.audit import JsonlAuditLog
+from network_dork.audit import JsonlAuditLog, current_identity
 from network_dork.config import AdapterDefinition, Settings, load_config
+from network_dork.grounding import check as grounding_check
 from network_dork.models import FailureRecord
 from network_dork.pipeline import InvestigationPipeline
 from network_dork.prompts import InvestigationPrompt, SYSTEM_PROMPT
@@ -143,7 +144,8 @@ def wire_pipeline(
     *,
     fake: bool = False,
 ) -> tuple[InvestigationPipeline, Any]:
-    audit = JsonlAuditLog(settings.storage.audit_path)
+    identity = current_identity()
+    audit = JsonlAuditLog(settings.storage.audit_path, identity)
     services = {"audit": audit}
     source = source_for(settings, resources)
     context = context_for(settings, audit, resources)
@@ -174,6 +176,16 @@ def wire_pipeline(
     llm = build_adapter(settings, "llm", name, services, resources)
     model_version = "fake:test-only" if fake else settings.llm.model
 
+    # Pin the exact weights this run used. A model name alone does not
+    # identify what produced a report.
+    model_digest: str | None = None
+    installed = getattr(llm, "installed_model", None)
+    if callable(installed):
+        try:
+            model_digest = installed().get("digest")
+        except Exception:
+            model_digest = None
+
     pipeline = InvestigationPipeline(
         source=source,
         context=context,
@@ -184,6 +196,10 @@ def wire_pipeline(
         state=SQLiteState(settings.storage.state_path),
         prompts=InvestigationPrompt(model_version),
         model_version=model_version,
+        audit=audit,
+        grounding=grounding_check,
+        model_digest=model_digest,
+        record_prompt_bodies=settings.audit.record_prompt_bodies,
         max_attempts=settings.llm.max_attempts,
         lease_seconds=max(
             600, math.ceil(settings.llm.timeout_seconds * 2 + 60)
