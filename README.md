@@ -4,7 +4,7 @@ Network-dork is a local AI assistant for security teams who already have alerts 
 
 ## Verification snapshot
 
-- 256 automated tests passing.
+- 285 automated tests passing.
 - Forecast enrichment finds all three campaigns in the evaluation corpus at
   precision 1.00 with zero benign windows flagged (`docs/evaluation.md`).
 - `python -m network_dork run --fake` processes all 12 fixture alerts.

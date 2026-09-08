@@ -17,8 +17,42 @@ from network_dork.config import (
     ],
 )
 def test_permitted_numeric_endpoints(url):
-    resolved = resolve_local_endpoint(url)
+    # Plaintext off-loopback now needs the explicit opt-out; loopback and
+    # https do not.
+    resolved = resolve_local_endpoint(url, allow_plaintext=True)
     assert resolved.connect_url == url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://10.0.0.5:11434",
+        "http://172.16.0.5:11434",
+        "http://192.168.1.5:11434",
+        "http://[fd00::5]:11434",
+    ],
+)
+def test_plaintext_off_loopback_is_refused_by_default(url):
+    """SC-8: HTTP Basic credentials must not cross a LAN unencrypted."""
+    with pytest.raises(LocalEndpointError, match="plaintext HTTP"):
+        resolve_local_endpoint(url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://127.0.0.1:11434", "http://[::1]:11434"],
+)
+def test_plaintext_to_loopback_stays_allowed(url):
+    """Nothing leaves the host, so there is nothing to encrypt."""
+    assert resolve_local_endpoint(url).connect_url == url
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://10.0.0.5:9200", "https://192.168.1.5:9200"],
+)
+def test_tls_off_loopback_needs_no_opt_out(url):
+    assert resolve_local_endpoint(url).connect_url == url
 
 @pytest.mark.parametrize(
     "url",
@@ -70,7 +104,7 @@ def test_hosts_entry_pins_numeric_connection(tmp_path):
         "172.18.0.1 host.docker.internal ollama.lan # local gateway\n"
     )
     endpoint = resolve_local_endpoint(
-        "http://ollama.lan:11434", hosts_path=hosts
+        "http://ollama.lan:11434", hosts_path=hosts, allow_plaintext=True
     )
     assert endpoint.connect_url == "http://172.18.0.1:11434"
     assert endpoint.host_header == "ollama.lan:11434"

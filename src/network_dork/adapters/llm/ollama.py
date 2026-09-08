@@ -28,6 +28,7 @@ class OllamaClient:
         num_predict: int = 2048,
         max_input_chars: int = 32000,
         max_response_bytes: int = 1048576,
+        allow_plaintext: bool = False,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         if not model.strip():
@@ -41,7 +42,9 @@ class OllamaClient:
         if max_input_chars < 1 or max_response_bytes < 1:
             raise ValueError("Input and response bounds must be positive")
 
-        endpoint = resolve_local_endpoint(base_url)
+        endpoint = resolve_local_endpoint(
+            base_url, allow_plaintext=allow_plaintext
+        )
         self.model = model
         self.temperature = temperature
         self.num_ctx = num_ctx

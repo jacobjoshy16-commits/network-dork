@@ -11,6 +11,7 @@ per metric does not scale, and that limit is documented rather than hidden.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
@@ -34,6 +35,57 @@ METRICS: dict[str, tuple[str, str]] = {
 # one hour: long enough for a rhythm to show, short enough that a beacon
 # starting mid-window still moves the number.
 REGULARITY_WINDOW = 12
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """How much usable history one host has, and whether it is enough.
+
+    Forecasting needs a host to have been observed for long enough that its
+    daily and weekly rhythm is visible. This reports that plainly so an
+    operator can see which hosts are ready and which are still accumulating,
+    instead of discovering it one alert at a time.
+    """
+
+    entity: str
+    observations: int
+    span_seconds: float
+    window_seconds: float
+    required_observations: int
+    required_span_seconds: float
+
+    @property
+    def ready(self) -> bool:
+        return (
+            self.observations >= self.required_observations
+            and self.span_seconds >= self.required_span_seconds
+        )
+
+    @property
+    def span_days(self) -> float:
+        return self.span_seconds / 86400
+
+    @property
+    def required_span_days(self) -> float:
+        return self.required_span_seconds / 86400
+
+    @property
+    def days_remaining(self) -> float:
+        """Calendar days of further collection before this host qualifies."""
+        return max(0.0, self.required_span_days - self.span_days)
+
+    def reason(self) -> str:
+        if self.ready:
+            return "ready"
+        if self.observations < self.required_observations:
+            return (
+                f"{self.observations} observations, "
+                f"{self.required_observations} required"
+            )
+        return (
+            f"spans {self.span_days:.1f} of {self.required_span_days:.1f} "
+            f"days; about {self.days_remaining:.1f} more days needed"
+        )
 
 
 class ZeekBucketTimeSeriesProvider:
@@ -69,6 +121,64 @@ class ZeekBucketTimeSeriesProvider:
                 raise ValueError("Event timestamp has no timezone")
             return parsed
         raise ValueError("Unsupported event timestamp")
+
+    def coverage(
+        self,
+        *,
+        end: datetime,
+        buckets: int,
+        bucket_seconds: int,
+    ) -> dict[str, Coverage]:
+        """Report usable history per host in one pass over the log.
+
+        Used by the readiness command so an operator can answer "is my
+        network ready for enrichment yet" without processing an alert.
+        """
+        if buckets < 1 or bucket_seconds < 1:
+            raise ValueError("buckets and bucket_seconds must be positive")
+        start = end - timedelta(seconds=bucket_seconds * buckets)
+        window = float(bucket_seconds * buckets)
+        seen: dict[str, list[float]] = {}
+
+        try:
+            stream = self.path.open("r", encoding="utf-8")
+        except FileNotFoundError:
+            return {}
+
+        with stream:
+            for line in stream:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if not isinstance(row, dict):
+                    raise ValueError("Connection log line is not an object")
+                timestamp = self._timestamp(row["ts"])
+                if not start <= timestamp < end:
+                    continue
+                moment = timestamp.timestamp()
+                for key in ("id.orig_h", "id.resp_h"):
+                    entity = str(row.get(key, ""))
+                    if not entity:
+                        continue
+                    record = seen.get(entity)
+                    if record is None:
+                        seen[entity] = [1.0, moment, moment]
+                    else:
+                        record[0] += 1
+                        record[1] = min(record[1], moment)
+                        record[2] = max(record[2], moment)
+
+        return {
+            entity: Coverage(
+                entity=entity,
+                observations=int(count),
+                span_seconds=last - first,
+                window_seconds=window,
+                required_observations=self.min_observations,
+                required_span_seconds=window * self.min_span_fraction,
+            )
+            for entity, (count, first, last) in seen.items()
+        }
 
     def series(
         self,

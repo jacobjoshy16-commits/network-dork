@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime
 import ipaddress
 import os
 from pathlib import Path
@@ -86,6 +87,14 @@ class ForecastSettings(SettingsModel):
     # little real history.
     min_observations: int = Field(default=100, ge=1, le=1000000)
     min_span_fraction: float = Field(default=0.5, gt=0, le=1)
+    # When this deployment began collecting telemetry, if known. Until a full
+    # history window has elapsed since then, enrichment reports that it is
+    # still accumulating rather than forecasting from a partial baseline.
+    #
+    # This is data accumulation, not model training. No forecaster here
+    # learns anything: TimesFM is frozen and zero-shot, and the baseline is
+    # arithmetic. What the wait buys is enough history to forecast against.
+    baseline_started_at: datetime | None = None
     base_url: str = "http://127.0.0.1:11435"
     timeout_seconds: float = Field(default=60.0, gt=0, le=3600)
     max_response_bytes: int = Field(default=4194304, ge=1024, le=33554432)
@@ -101,6 +110,15 @@ class OpenSearchSettings(SettingsModel):
     timeout_seconds: float = Field(default=30.0, gt=0, le=3600)
     max_hits: int = Field(default=500, ge=1, le=5000)
     max_response_bytes: int = Field(default=1048576, ge=1024, le=8388608)
+
+
+class SecuritySettings(SettingsModel):
+    """Transport rules that apply to every HTTP client here."""
+
+    # Plaintext HTTP off-loopback is refused by default (SC-8). A container
+    # bridge such as host.docker.internal is non-loopback but host-local, so
+    # the demo compose file opts in explicitly.
+    allow_plaintext: bool = False
 
 
 class AgentSettings(SettingsModel):
@@ -178,6 +196,7 @@ class Settings(SettingsModel):
     storage: StorageSettings = Field(default_factory=StorageSettings)
     audit: AuditSettings = Field(default_factory=AuditSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
+    security: SecuritySettings = Field(default_factory=SecuritySettings)
     credentials: Credentials = Field(default_factory=Credentials)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     adapters: dict[str, dict[str, str | AdapterDefinition]] = Field(
@@ -214,6 +233,7 @@ ENV_PATHS = {
         "opensearch",
         "max_response_bytes",
     ),
+    "NETWORK_DORK_ALLOW_PLAINTEXT": ("security", "allow_plaintext"),
     "NETWORK_DORK_AGENT_NAME": ("agent", "name"),
     "NETWORK_DORK_AGENT_ROLE": ("agent", "role"),
     "NETWORK_DORK_AGENT_DEPLOYMENT": ("agent", "deployment"),
@@ -241,6 +261,10 @@ ENV_PATHS = {
     "NETWORK_DORK_FORECAST_HISTORY_BUCKETS": ("forecast", "history_buckets"),
     "NETWORK_DORK_FORECAST_HORIZON_BUCKETS": ("forecast", "horizon_buckets"),
     "NETWORK_DORK_FORECAST_PERIOD_BUCKETS": ("forecast", "period_buckets"),
+    "NETWORK_DORK_FORECAST_BASELINE_STARTED_AT": (
+        "forecast",
+        "baseline_started_at",
+    ),
 }
 
 
@@ -327,8 +351,18 @@ def resolve_local_endpoint(
     base_url: str,
     *,
     hosts_path: Path = Path("/etc/hosts"),
+    allow_plaintext: bool = False,
 ) -> ResolvedLocalEndpoint:
-    """Resolve without DNS, then pin the connection to a numeric IP."""
+    """Resolve without DNS, then pin the connection to a numeric IP.
+
+    Plaintext HTTP is permitted to loopback, where nothing leaves the host,
+    and refused everywhere else. Telemetry credentials travel as HTTP Basic,
+    so an unencrypted hop across a LAN puts them on the wire -- which is what
+    NIST SP 800-53 SC-8 exists to prevent.
+
+    ``allow_plaintext`` exists for a container bridge or a lab, and is an
+    explicit deployment decision rather than a default.
+    """
     if (
         not base_url
         or any(character.isspace() for character in base_url)
@@ -391,6 +425,16 @@ def resolve_local_endpoint(
 
     addresses.sort(key=lambda address: (address.version, int(address)))
     chosen = addresses[0]
+    if (
+        parsed.scheme == "http"
+        and not chosen.is_loopback
+        and not allow_plaintext
+    ):
+        raise LocalEndpointError(
+            f"Refusing plaintext HTTP to non-loopback address {chosen}: "
+            "credentials would cross the network unencrypted. Use https, or "
+            "set security.allow_plaintext for a container bridge or lab."
+        )
     numeric_authority = f"[{chosen}]" if chosen.version == 6 else str(chosen)
     hostname_authority = f"[{normalized_host}]" if ":" in normalized_host else normalized_host
     return ResolvedLocalEndpoint(

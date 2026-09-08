@@ -165,6 +165,31 @@ Prompt and response *bodies* are excluded by default because they carry
 telemetry; `audit.record_prompt_bodies` enables full capture where a
 deployment wants it.
 
+Records are **hash-chained**: each carries the digest of the one before it
+and its own digest over that link plus its content. `verify-audit` checks
+every link and names the first record that disagrees, so edits and deletions
+are detectable. It is tamper *evidence*, not prevention — see
+`open-items.md`.
+
+### Warm-up — why a new deployment waits
+
+Forecasting needs about fourteen days of history before a host's daily and
+weekly rhythm is visible. **Nothing is being trained during that time.**
+Neither forecaster learns: the baseline is arithmetic over a window, and
+TimesFM is a frozen, zero-shot model whose weights never change. The wait is
+for telemetry to accumulate, not for a model to improve.
+
+Two gates express this:
+
+- **Per host,** the bucketizer refuses to forecast a host with too few
+  observations or too little calendar coverage, because a zero-padded series
+  makes ordinary traffic look anomalous.
+- **Per deployment,** `forecast.baseline_started_at` suppresses enrichment
+  until a full history window has elapsed since collection began.
+
+`python -m network_dork readiness` reports which hosts qualify and how much
+longer the others need.
+
 ## Why it cannot act
 
 Four independent layers, in decreasing order of how much I would trust them:

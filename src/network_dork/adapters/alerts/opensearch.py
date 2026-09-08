@@ -135,6 +135,7 @@ class OpenSearchAlertSource:
         max_hits: int = 100,
         max_response_bytes: int = 1048576,
         source_name: str = "opensearch-alerts",
+        allow_plaintext: bool = False,
         transport: httpx.BaseTransport | None = None,
         query: dict[str, Any] | None = None,
     ) -> None:

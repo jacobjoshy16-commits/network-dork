@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib
 import json
@@ -17,7 +17,12 @@ from pydantic import BaseModel, SecretStr
 import structlog
 import typer
 
-from network_dork.audit import JsonlAuditLog, current_identity
+from network_dork.audit import (
+    AuditChainError,
+    JsonlAuditLog,
+    current_identity,
+    verify_chain,
+)
 from network_dork.config import AdapterDefinition, Settings, load_config
 from network_dork.grounding import check as grounding_check
 from network_dork.models import FailureRecord
@@ -288,6 +293,103 @@ def adapters(
             typer.echo(
                 f"{kind}\t{name}\t{definition.class_path}"
             )
+
+@app.command("readiness")
+def readiness_command(
+    config: Annotated[Path | None, typer.Option("--config")] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", help="Hosts to list.")
+    ] = 20,
+) -> None:
+    """Show which hosts have enough history for forecast enrichment.
+
+    Forecasting needs a host observed long enough for its daily and weekly
+    rhythm to be visible. Nothing is being trained while you wait: the
+    forecasters do not learn, and TimesFM is frozen and zero-shot. The wait
+    is for telemetry to accumulate.
+    """
+    settings = load_config(config)
+    forecast = settings.forecast
+    with ExitStack() as resources:
+        provider = build_adapter(
+            settings,
+            "timeseries",
+            settings.runtime.timeseries_adapter,
+            {},
+            resources,
+        )
+        coverage = getattr(provider, "coverage", None)
+        if not callable(coverage):
+            raise typer.BadParameter(
+                f"{settings.runtime.timeseries_adapter} cannot report coverage"
+            )
+        report = coverage(
+            end=datetime.now(timezone.utc),
+            buckets=forecast.history_buckets + forecast.horizon_buckets,
+            bucket_seconds=forecast.bucket_seconds,
+        )
+
+    if forecast.baseline_started_at is not None:
+        needed = timedelta(
+            seconds=forecast.bucket_seconds * forecast.history_buckets
+        )
+        ready_at = forecast.baseline_started_at + needed
+        remaining = (ready_at - datetime.now(timezone.utc)).total_seconds()
+        if remaining > 0:
+            typer.echo(
+                f"Baseline period in progress: enrichment begins "
+                f"{ready_at.date()} ({remaining / 86400:.1f} days remaining)."
+            )
+        else:
+            typer.echo(f"Baseline period complete since {ready_at.date()}.")
+
+    if not report:
+        typer.echo("No hosts observed in the configured window.", err=True)
+        return
+
+    ready = sorted(
+        (item for item in report.values() if item.ready),
+        key=lambda item: -item.span_seconds,
+    )
+    waiting = sorted(
+        (item for item in report.values() if not item.ready),
+        key=lambda item: -item.span_seconds,
+    )
+    typer.echo(
+        f"\n{len(ready)} of {len(report)} hosts have enough history "
+        f"({forecast.history_buckets * forecast.bucket_seconds / 86400:.0f} "
+        "day window)"
+    )
+    for item in ready[:limit]:
+        typer.echo(f"  READY    {item.entity:<20} {item.span_days:.1f} days")
+    for item in waiting[:limit]:
+        typer.echo(f"  WAITING  {item.entity:<20} {item.reason()}")
+
+
+@app.command("verify-audit")
+def verify_audit_command(
+    config: Annotated[Path | None, typer.Option("--config")] = None,
+    path: Annotated[
+        Path | None,
+        typer.Option("--path", help="Audit file; defaults to the configured one."),
+    ] = None,
+) -> None:
+    """Check the audit file against its own hash chain.
+
+    Detects edited, removed, reordered, and inserted records. It cannot
+    detect a rewrite by someone who recomputed every later digest: that needs
+    an anchor outside the file.
+    """
+    settings = load_config(config)
+    target = path or settings.storage.audit_path
+    try:
+        count, head = verify_chain(target)
+    except AuditChainError as exc:
+        typer.echo(f"FAILED  {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"OK  {count} records verified in {target}")
+    typer.echo(f"chain head: {head}")
+
 
 @app.command("agent")
 def agent_command(

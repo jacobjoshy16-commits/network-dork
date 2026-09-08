@@ -15,7 +15,7 @@ acceptable in a controlled network:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -44,6 +44,7 @@ class ForecastEnrichingContextProvider:
         max_evidence: int = 5,
         min_score: float = 24.0,
         min_score_by_metric: dict[str, float] | None = None,
+        baseline_started_at: datetime | None = None,
     ) -> None:
         if bucket_seconds < 1:
             raise ValueError("bucket_seconds must be positive")
@@ -74,6 +75,7 @@ class ForecastEnrichingContextProvider:
         self.max_evidence = max_evidence
         self.min_score = min_score
         self.min_score_by_metric = dict(min_score_by_metric or {})
+        self.baseline_started_at = baseline_started_at
 
     def close(self) -> None:
         for candidate in (self.inner, self.series_provider, self.forecaster):
@@ -97,6 +99,30 @@ class ForecastEnrichingContextProvider:
                 stage=stage,
                 parameters=parameters,
             )
+        )
+
+    def _baseline_pending(self, alert: Alert) -> str | None:
+        """Reason to hold off, while the deployment is still accumulating.
+
+        A forecast built on a partial history is worse than none: the missing
+        stretch reads as absence, and ordinary traffic then looks like a
+        large deviation. Nothing is being trained here -- the wait is for
+        data, not for a model to learn.
+        """
+        if self.baseline_started_at is None:
+            return None
+        needed = timedelta(
+            seconds=self.bucket_seconds * self.history_buckets
+        )
+        ready_at = self.baseline_started_at + needed
+        if alert.timestamp >= ready_at:
+            return None
+        remaining = (ready_at - alert.timestamp).total_seconds() / 86400
+        return (
+            "Baseline period is still in progress: collection began "
+            f"{self.baseline_started_at.date()} and needs "
+            f"{needed.days} days of history; about {remaining:.1f} days "
+            "remain before forecasting begins"
         )
 
     @staticmethod
@@ -184,6 +210,16 @@ class ForecastEnrichingContextProvider:
             "horizon_buckets": self.horizon_buckets,
         }
         self._record(alert, operation_id, "attempt", parameters)
+
+        pending = self._baseline_pending(alert)
+        if pending is not None:
+            self._record(
+                alert,
+                operation_id,
+                "success",
+                {**parameters, "available": False, "reason": pending},
+            )
+            return self._merge(base, [], pending)
 
         if entity is None:
             reason = "Alert names no IP address to forecast"

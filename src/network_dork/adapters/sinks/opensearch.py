@@ -30,6 +30,7 @@ class OpenSearchReportSink:
         audit: AuditLog,
         timeout_seconds: float = 30.0,
         max_response_bytes: int = 1048576,
+        allow_plaintext: bool = False,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.index = index
@@ -40,6 +41,7 @@ class OpenSearchReportSink:
             password=password,
             timeout_seconds=timeout_seconds,
             max_response_bytes=max_response_bytes,
+            allow_plaintext=allow_plaintext,
             transport=transport,
         )
 

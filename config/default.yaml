@@ -28,6 +28,26 @@ opensearch:
   max_hits: 500
   max_response_bytes: 1048576
 
+forecast:
+  bucket_seconds: 300
+  history_buckets: 4032       # 14 days at five-minute buckets
+  horizon_buckets: 72         # the 6 hours before the alert
+  period_buckets: 288         # one day
+  max_evidence: 5
+  min_observations: 100
+  min_span_fraction: 0.5
+  # Set to the date this deployment began collecting telemetry. Until a full
+  # history window has passed, enrichment says it is still accumulating
+  # rather than forecasting from a partial baseline. Nothing is trained
+  # during this period: it is data collection, not model learning.
+  baseline_started_at: null
+
+security:
+  # Plaintext HTTP is refused to anything but loopback: telemetry
+  # credentials travel as HTTP Basic and must not cross a LAN in the clear.
+  # Set true only for a container bridge or a lab.
+  allow_plaintext: false
+
 agent:
   # Identity only. The rules that make this an investigator rather than an
   # actor are fixed in code; see src/network_dork/prompts.py.
@@ -68,6 +88,7 @@ adapters:
       class_path: network_dork.adapters.alerts.opensearch:OpenSearchAlertSource
       options:
         base_url: "${opensearch.base_url}"
+        allow_plaintext: "${security.allow_plaintext}"
         index: "${opensearch.alerts_index}"
         username: "${credentials.telemetry_username}"
         password: "${credentials.telemetry_password}"
@@ -92,6 +113,7 @@ adapters:
       class_path: network_dork.adapters.context.opensearch:OpenSearchContextProvider
       options:
         base_url: "${opensearch.base_url}"
+        allow_plaintext: "${security.allow_plaintext}"
         flows_index: "${opensearch.flows_index}"
         dns_index: "${opensearch.dns_index}"
         auth_index: "${opensearch.auth_index}"
@@ -111,6 +133,7 @@ adapters:
       class_path: network_dork.adapters.llm.ollama:OllamaClient
       options:
         base_url: "${llm.base_url}"
+        allow_plaintext: "${security.allow_plaintext}"
         model: "${llm.model}"
         temperature: "${llm.temperature}"
         timeout_seconds: "${llm.timeout_seconds}"
@@ -134,6 +157,7 @@ adapters:
       class_path: network_dork.adapters.sinks.opensearch:OpenSearchReportSink
       options:
         base_url: "${opensearch.base_url}"
+        allow_plaintext: "${security.allow_plaintext}"
         index: "${opensearch.reports_index}"
         username: "${credentials.report_username}"
         password: "${credentials.report_password}"
@@ -158,6 +182,7 @@ adapters:
       class_path: network_dork.adapters.forecast.timesfm_http:TimesFMForecaster
       options:
         base_url: "${forecast.base_url}"
+        allow_plaintext: "${security.allow_plaintext}"
         timeout_seconds: "${forecast.timeout_seconds}"
         max_response_bytes: "${forecast.max_response_bytes}"
 
@@ -175,3 +200,4 @@ adapters:
         max_evidence: "${forecast.max_evidence}"
         min_score: "${forecast.min_score}"
         min_score_by_metric: "${forecast.min_score_by_metric}"
+        baseline_started_at: "${forecast.baseline_started_at}"

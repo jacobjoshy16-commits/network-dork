@@ -5,30 +5,27 @@ placeholder. Several would matter for a federal authorization package.
 
 ## Security and compliance
 
-### Plaintext HTTP is permitted to LAN endpoints (SC-8)
+### ~~Plaintext HTTP to LAN endpoints~~ — fixed
 
-`resolve_local_endpoint` accepts `http://` to any RFC 1918 address, and the
-shipped OpenSearch default is `http://127.0.0.1:9200`. HTTP Basic credentials
-therefore cross a LAN in the clear when OpenSearch is not on loopback.
+Plaintext HTTP is now refused to anything but loopback. `security.
+allow_plaintext` is an explicit opt-out for a container bridge or lab, and
+the demo compose file sets it because `host.docker.internal` is host-local
+but not loopback.
 
-Loopback is defensible. A LAN hop is not, under a control set that requires
-transmission confidentiality.
+### The audit chain is tamper-evident, not tamper-proof
 
-**Fix:** require `https` for any non-loopback endpoint, with an explicit
-opt-out for lab use. Roughly a dozen lines in `config.py` plus tests.
+`audit.py` now hash-chains every record, so edits, deletions, reordering and
+insertions are detected by `python -m network_dork verify-audit`, which names
+the first record that disagrees.
 
-### The audit log is not tamper-evident
+**What it still does not do:** someone with write access can rewrite the file
+from a chosen point and recompute every subsequent digest. The chain also
+cannot prove records are missing from the *end* — a truncated file is
+internally consistent.
 
-`audit.py` uses `O_APPEND`, `O_NOFOLLOW`, an exclusive `flock`, and `fsync`.
-That prevents this writer from overwriting its own history. It does nothing
-against anyone with write access to the file.
-
-The module says so, and the README says deployment must enforce the boundary.
-That is honest but it is not AU-9.
-
-**Fix:** a hash chain (each record carries the digest of the previous) makes
-deletion and edits detectable, and is cheap. It does not replace an
-append-only mount or a remote log service.
+**Both need an anchor outside the file:** ship the chain head to a remote log
+service, or record it periodically somewhere the application cannot reach.
+An append-only mount remains the deployment-side control.
 
 ### No SBOM, dependency scanning, or signed releases
 
@@ -101,6 +98,7 @@ decisions; they do not predict field performance.
 
 They decide which hosts get forecast at all (currently: 100 observations
 spanning at least half the requested window). Nothing measured those values.
+`python -m network_dork readiness` shows their effect on your own telemetry.
 
 ### TimesFM has never been run
 

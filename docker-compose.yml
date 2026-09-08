@@ -15,6 +15,10 @@ services:
       - no-new-privileges:true
     environment:
       NETWORK_DORK_CONFIG: /workspace/config/default.yaml
+      # host.docker.internal is a host-local bridge, not a LAN hop, but it is
+      # not loopback either. The demo opts in explicitly rather than
+      # weakening the default for everyone.
+      NETWORK_DORK_ALLOW_PLAINTEXT: ${NETWORK_DORK_ALLOW_PLAINTEXT:-true}
       NETWORK_DORK_OLLAMA_BASE_URL: ${NETWORK_DORK_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       NETWORK_DORK_MODEL: ${NETWORK_DORK_MODEL:-}
       NETWORK_DORK_TEMPERATURE: ${NETWORK_DORK_TEMPERATURE:-}
