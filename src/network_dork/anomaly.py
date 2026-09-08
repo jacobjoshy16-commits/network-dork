@@ -87,16 +87,30 @@ def score(
     return deviations
 
 
-def most_deviant(deviations: list[Deviation], limit: int) -> list[Deviation]:
-    """Return the highest-scoring buckets, oldest first.
+def most_deviant(
+    deviations: list[Deviation], limit: int, min_score: float = 0.0
+) -> list[Deviation]:
+    """Return the highest-scoring buckets above min_score, oldest first.
 
     Numeric evidence is sent to a language model with a character budget, so
     the full series is summarized down to the buckets that carry the signal.
+
+    min_score matters more than the limit. An 80% forecast band leaves about
+    a fifth of buckets outside it by construction, so "outside the band" is
+    an everyday event: on the evaluation corpus the median benign window
+    still peaks around 2.6. Emitting those as evidence would attach an
+    anomaly to nearly every investigation and teach an analyst to ignore the
+    field. See docs/evaluation.md for the measured separation.
     """
     if limit < 1:
         raise ValueError("limit must be positive")
+    if min_score < 0:
+        raise ValueError("min_score must not be negative")
     ranked = sorted(deviations, key=lambda item: item.score, reverse=True)
-    selected = [item for item in ranked[:limit] if item.score > 0]
+    selected = [
+        item for item in ranked[:limit]
+        if item.score > 0 and item.score >= min_score
+    ]
     return sorted(selected, key=lambda item: item.timestamp)
 
 

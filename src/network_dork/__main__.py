@@ -296,6 +296,112 @@ def show_context(
         ).gather(matches[0])
         typer.echo(context.model_dump_json(indent=2))
 
+@app.command("eval")
+def eval_command(
+    config: Annotated[Path | None, typer.Option("--config")] = None,
+    corpus: Annotated[
+        Path, typer.Option("--corpus", help="Directory holding corpus.json.")
+    ] = Path("fixtures/timeseries"),
+    forecaster_name: Annotated[
+        str,
+        typer.Option(
+            "--forecaster",
+            help="Configured forecaster to score, or 'all' to compare.",
+        ),
+    ] = "baseline",
+    threshold: Annotated[
+        float,
+        typer.Option("--threshold", help="Operating point to report in detail."),
+    ] = 24.0,
+) -> None:
+    """Score forecasters against the labelled corpus.
+
+    Reports the confounder flag rate alongside precision and recall: benign
+    activity that looks anomalous is what decides whether an analyst keeps
+    trusting this evidence.
+    """
+    from network_dork.evaluation import (
+        Corpus,
+        attacks_found,
+        evaluate,
+        recall_by_category,
+        sweep,
+        tally,
+    )
+
+    settings = load_config(config)
+    loaded = Corpus.load(corpus)
+    names = (
+        sorted(settings.adapters.get("forecasters", {}))
+        if forecaster_name == "all"
+        else [forecaster_name]
+    )
+
+    thresholds = [4.0, 8.0, 16.0, 24.0, 32.0, 48.0, 64.0, 128.0]
+    for name in names:
+        # A forecaster that cannot be built or reached is reported and
+        # skipped: an unavailable sidecar must not abort a comparison run.
+        try:
+            with ExitStack() as resources:
+                model = build_adapter(
+                    settings, "forecasters", name, {}, resources
+                )
+                points, skipped = evaluate(
+                    model,
+                    loaded,
+                    history_buckets=settings.forecast.history_buckets,
+                    horizon_buckets=settings.forecast.horizon_buckets,
+                    min_observations=settings.forecast.min_observations,
+                    min_span_fraction=settings.forecast.min_span_fraction,
+                )
+        except Exception as exc:
+            typer.echo(
+                f"\n=== {name} ===\nunavailable: {type(exc).__name__}: "
+                f"{str(exc)[:200]}",
+                err=True,
+            )
+            continue
+
+        if not points:
+            typer.echo(f"\n{name}: no evaluable points", err=True)
+            continue
+
+        positives = sum(1 for point in points if point.malicious)
+        typer.echo(f"\n=== {name} ===")
+        typer.echo(
+            f"{len(points)} evaluated, {skipped} skipped for insufficient "
+            f"history, {positives} malicious"
+        )
+        typer.echo(
+            f"{'thresh':>7} {'prec':>6} {'recall':>7} {'F1':>6} "
+            f"{'FP rate':>8} {'confounders flagged':>20}"
+        )
+        for board in sweep(points, thresholds):
+            typer.echo(
+                f"{board.threshold:7.2f} {board.precision:6.2f} "
+                f"{board.recall:7.2f} {board.f1:6.2f} "
+                f"{board.false_positive_rate:8.3f} "
+                f"{board.confounder_flags:>10}/{board.confounder_total:<9}"
+            )
+
+        board = tally(points, threshold)
+        typer.echo(f"\nAt threshold {threshold}:")
+        found = attacks_found(points, threshold)
+        by_category = recall_by_category(points, threshold)
+        for category in sorted(by_category):
+            hits, total = by_category[category]
+            verdict = "FOUND" if found.get(category) else "MISSED"
+            typer.echo(
+                f"  {category:<22} {verdict:<7} "
+                f"({hits}/{total} evaluation points)"
+            )
+        typer.echo(
+            f"  {'benign flagged':<22} "
+            f"{board.confounder_flags}/{board.confounder_total} "
+            f"(false positives: {board.false_positives})"
+        )
+
+
 @app.command("run")
 def run_command(
     config: Annotated[Path | None, typer.Option("--config")] = None,

@@ -3,7 +3,7 @@ CONFIG ?= config/default.yaml
 COMPOSE ?= docker compose
 SERVICE ?= network-dork
 
-.PHONY: sync test adapters context run-fake demo-local up down demo ci-local
+.PHONY: sync test adapters context run-fake demo-local up down demo ci-local corpus eval
 
 sync:
 	$(UV) sync --extra dev
@@ -22,6 +22,12 @@ run-fake: sync
 	NETWORK_DORK_REPORTS_PATH=var/fake/reports.sqlite3 \
 	NETWORK_DORK_AUDIT_PATH=var/fake/audit.jsonl \
 	$(UV) run python -m network_dork run --config "$(CONFIG)" --fake
+
+corpus: sync
+	$(UV) run python scripts/generate_timeseries_corpus.py
+
+eval: sync
+	$(UV) run python -m network_dork eval --config "$(CONFIG)" --forecaster all
 
 demo-local: sync
 	$(UV) run python -m network_dork demo --config "$(CONFIG)"

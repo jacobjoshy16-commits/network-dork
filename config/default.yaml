@@ -165,3 +165,4 @@ adapters:
         history_buckets: "${forecast.history_buckets}"
         horizon_buckets: "${forecast.horizon_buckets}"
         max_evidence: "${forecast.max_evidence}"
+        min_score: "${forecast.min_score}"

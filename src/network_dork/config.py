@@ -65,6 +65,10 @@ class ForecastSettings(SettingsModel):
     horizon_buckets: int = Field(default=72, ge=1, le=1024)
     period_buckets: int = Field(default=288, ge=2, le=16000)
     max_evidence: int = Field(default=5, ge=1, le=50)
+    # Deviation score a bucket must reach to become evidence. 24.0 is the
+    # measured point on the evaluation corpus where precision reaches 1.00
+    # and no benign window is flagged; see docs/evaluation.md.
+    min_score: float = Field(default=24.0, ge=0, le=10000)
     # Guards against forecasting a zero-padded series for a host with too
     # little real history.
     min_observations: int = Field(default=100, ge=1, le=1000000)

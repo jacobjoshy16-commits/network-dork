@@ -42,6 +42,7 @@ class ForecastEnrichingContextProvider:
         history_buckets: int = 4032,
         horizon_buckets: int = 72,
         max_evidence: int = 5,
+        min_score: float = 24.0,
     ) -> None:
         if bucket_seconds < 1:
             raise ValueError("bucket_seconds must be positive")
@@ -49,6 +50,8 @@ class ForecastEnrichingContextProvider:
             raise ValueError("history and horizon must be positive")
         if max_evidence < 1:
             raise ValueError("max_evidence must be positive")
+        if min_score < 0:
+            raise ValueError("min_score must not be negative")
         self.inner = inner
         self.series_provider = series_provider
         self.forecaster = forecaster
@@ -61,6 +64,7 @@ class ForecastEnrichingContextProvider:
         self.history_buckets = history_buckets
         self.horizon_buckets = horizon_buckets
         self.max_evidence = max_evidence
+        self.min_score = min_score
 
     def close(self) -> None:
         for candidate in (self.inner, self.series_provider, self.forecaster):
@@ -149,7 +153,9 @@ class ForecastEnrichingContextProvider:
         )
         return [
             self._evidence(metric, entity, deviation)
-            for deviation in most_deviant(deviations, self.max_evidence)
+            for deviation in most_deviant(
+                deviations, self.max_evidence, self.min_score
+            )
         ]
 
     def gather(self, alert: Alert) -> AlertContext:
@@ -186,6 +192,20 @@ class ForecastEnrichingContextProvider:
             except Exception as exc:
                 # A forecaster outage must not fail the investigation.
                 skipped.append(f"{metric}: {type(exc).__name__}")
+
+        if not evidence and len(skipped) < len(self.metrics):
+            reason = (
+                "Traffic was forecastable and stayed within its predicted "
+                f"range (no deviation reached a score of {self.min_score})"
+            )
+            self._record(
+                alert,
+                operation_id,
+                "success",
+                {**parameters, "available": True, "result_count": 0,
+                 "reason": reason, "skipped": skipped},
+            )
+            return self._merge(base, [], reason)
 
         if len(skipped) == len(self.metrics):
             reason = "No metric had enough history to forecast"
