@@ -34,44 +34,57 @@ class JsonlReportSink:
             )
         )
 
-    def _read_all(self) -> dict[str, tuple[str, str]]:
-        outcomes: dict[str, tuple[str, str]] = {}
+    def _read_all(self) -> dict[tuple[str, str], tuple[str, str]]:
+        outcomes: dict[tuple[str, str], tuple[str, str]] = {}
         if not self.path.exists():
             return outcomes
         for line in self.path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
-            kind, payload = line.split("\t", 1)
-            alert_id = InvestigationReport.model_validate_json(payload).alert_id if kind == "report" else FailureRecord.model_validate_json(payload).alert_id
-            outcomes[alert_id] = (kind, payload)
+            source, kind, payload = line.split("\t", 2)
+            model = (
+                InvestigationReport if kind == "report" else FailureRecord
+            )
+            alert_id = model.model_validate_json(payload).alert_id
+            outcomes[(source, alert_id)] = (kind, payload)
         return outcomes
 
-    def _write(self, value: InvestigationReport | FailureRecord, kind: str) -> None:
+    def _write(
+        self, source: str, value: InvestigationReport | FailureRecord, kind: str
+    ) -> None:
         payload = value.model_dump_json()
         action = "report_write" if kind == "report" else "failure_write"
-        parameters = {"sink": "jsonl", "path": str(self.path), "kind": kind}
+        parameters = {
+            "sink": "jsonl",
+            "path": str(self.path),
+            "source": source,
+            "kind": kind,
+        }
         self._audit(value.alert_id, action, "attempt", parameters)
         with self._lock:
             outcomes = self._read_all()
-            previous = outcomes.get(value.alert_id)
+            previous = outcomes.get((source, value.alert_id))
             if previous is not None and previous != (kind, payload):
                 self._audit(value.alert_id, action, "error", {**parameters, "error_type": "JsonlOutcomeConflictError"})
                 raise JsonlOutcomeConflictError(
-                    f"A different canonical outcome already exists for {value.alert_id}"
+                    "A different canonical outcome already exists for "
+                    f"{source}/{value.alert_id}"
                 )
             if previous is None:
                 with self.path.open("a", encoding="utf-8") as stream:
-                    stream.write(f"{kind}\t{payload}\n")
+                    stream.write(f"{source}\t{kind}\t{payload}\n")
         self._audit(value.alert_id, action, "success", {**parameters, "inserted": previous is None})
 
-    def write(self, report: InvestigationReport) -> None:
-        self._write(report, "report")
+    def write(self, source: str, report: InvestigationReport) -> None:
+        self._write(source, report, "report")
 
-    def write_failure(self, failure: FailureRecord) -> None:
-        self._write(failure, "failure")
+    def write_failure(self, source: str, failure: FailureRecord) -> None:
+        self._write(source, failure, "failure")
 
-    def get_outcome(self, alert_id: str) -> InvestigationReport | FailureRecord | None:
-        previous = self._read_all().get(alert_id)
+    def get_outcome(
+        self, source: str, alert_id: str
+    ) -> InvestigationReport | FailureRecord | None:
+        previous = self._read_all().get((source, alert_id))
         if previous is None:
             return None
         kind, payload = previous

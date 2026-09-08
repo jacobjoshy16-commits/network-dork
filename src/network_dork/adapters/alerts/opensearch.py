@@ -11,6 +11,7 @@ import httpx
 from pydantic import ValidationError
 
 from network_dork.adapters.opensearch_common import OpenSearchJsonClient, OpenSearchRequestError
+from network_dork.adapters.identity import normalize_alert_id
 from network_dork.models import Alert
 
 
@@ -167,7 +168,7 @@ class OpenSearchAlertSource:
             try:
                 yield _alert_from_document(
                     document,
-                    alert_id=f"{self.source_name}:{hit_id}",
+                    alert_id=normalize_alert_id(self.source_name, hit_id),
                     source_name=self.source_name,
                 )
             except ValidationError as exc:
@@ -191,7 +192,9 @@ class OpenSearchAlertSource:
             try:
                 yield _alert_from_document(
                     item["_source"],
-                    alert_id=f"{self.source_name}:{item.get('_id', 'no-id')}",
+                    alert_id=normalize_alert_id(
+                        self.source_name, item.get("_id", "no-id")
+                    ),
                     source_name=self.source_name,
                 )
             except ValidationError as exc:

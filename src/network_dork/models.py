@@ -19,6 +19,28 @@ from pydantic import (
 )
 
 NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+# Alert identifiers are interpolated into storage keys and REST paths, so they
+# are restricted to characters that cannot alter a URL's structure. Source
+# adapters normalize native identifiers into this shape; they never reject an
+# alert for carrying an awkward native id.
+AlertId = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=512,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@+-]*$",
+    ),
+]
+SourceName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+    ),
+]
 Technique = Annotated[
     str, StringConstraints(pattern=r"^T[0-9]{4}(?:\.[0-9]{3})?$")
 ]
@@ -33,8 +55,8 @@ class DataModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 class Alert(DataModel):
-    source: NonEmpty
-    alert_id: NonEmpty
+    source: SourceName
+    alert_id: AlertId
     timestamp: AwareDatetime
     title: NonEmpty
     description: str
@@ -92,7 +114,7 @@ class AlertContext(DataModel):
 
 class InvestigationReport(DataModel):
     # Deliberately no defaults: missing model fields are errors.
-    alert_id: NonEmpty
+    alert_id: AlertId
     timestamp: AwareDatetime
     summary: NonEmpty
     mitre_technique: Technique | None
@@ -104,7 +126,7 @@ class InvestigationReport(DataModel):
 
 class AuditEvent(DataModel):
     timestamp: AwareDatetime
-    alert_id: NonEmpty
+    alert_id: AlertId
     operation_id: NonEmpty
     action: Literal["context_query", "report_write", "failure_write"]
     stage: Literal["attempt", "success", "error"]
@@ -112,7 +134,7 @@ class AuditEvent(DataModel):
 
 class FailureRecord(DataModel):
     failure_id: NonEmpty
-    alert_id: NonEmpty
+    alert_id: AlertId
     timestamp: AwareDatetime
     model_version: NonEmpty
     attempts: int = Field(ge=1)

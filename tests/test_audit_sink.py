@@ -71,11 +71,14 @@ def test_sink_is_idempotent_but_rejects_conflicting_report(tmp_path):
         JsonlAuditLog(tmp_path / "audit.jsonl"),
     )
     original = report()
-    sink.write(original)
-    sink.write(original)
+    sink.write("synthetic", original)
+    sink.write("synthetic", original)
     with pytest.raises(OutcomeConflictError):
-        sink.write(original.model_copy(update={"summary": "Different summary"}))
-    assert sink.get_outcome(original.alert_id) == original
+        sink.write(
+            "synthetic",
+            original.model_copy(update={"summary": "Different summary"}),
+        )
+    assert sink.get_outcome("synthetic", original.alert_id) == original
 
 def test_audit_failure_before_write_prevents_persistence(tmp_path):
     class BrokenAudit:
@@ -85,7 +88,7 @@ def test_audit_failure_before_write_prevents_persistence(tmp_path):
     path = tmp_path / "reports.sqlite3"
     sink = SQLiteReportSink(path, BrokenAudit())
     with pytest.raises(OSError, match="audit unavailable"):
-        sink.write(report())
+        sink.write("synthetic", report())
     with sqlite3.connect(path) as connection:
         assert connection.execute(
             "SELECT count(*) FROM outcomes"
@@ -101,11 +104,11 @@ def test_completion_audit_failure_leaves_canonical_outcome_for_recovery(tmp_path
     sink = SQLiteReportSink(path, FailCompletionAudit())
     original = report()
     with pytest.raises(OSError, match="completion audit unavailable"):
-        sink.write(original)
-    assert sink.get_outcome(original.alert_id) == original
+        sink.write("synthetic", original)
+    assert sink.get_outcome("synthetic", original.alert_id) == original
 
     recovered = SQLiteReportSink(
         path, JsonlAuditLog(tmp_path / "recovered-audit.jsonl")
     )
-    recovered.write(original)
-    assert recovered.get_outcome(original.alert_id) == original
+    recovered.write("synthetic", original)
+    assert recovered.get_outcome("synthetic", original.alert_id) == original

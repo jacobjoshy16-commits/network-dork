@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from network_dork.adapters.identity import normalize_alert_id
 from network_dork.models import Alert
 
 
@@ -46,11 +47,11 @@ class SuricataEveAlertSource:
                 alert_block = event.get("alert")
                 if not isinstance(alert_block, dict):
                     raise ValueError(f"{self.path}:{line_number}: alert event missing alert object")
-                alert_id = (
-                    f"{self.source_name}:"
+                alert_id = normalize_alert_id(
+                    self.source_name,
                     f"{event.get('flow_id', 'no-flow')}:"
                     f"{alert_block.get('signature_id', 'no-sid')}:"
-                    f"{line_number}"
+                    f"{line_number}",
                 )
                 payload = {
                     "source": self.source_name,

@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from network_dork.adapters.identity import normalize_alert_id
 from network_dork.models import Alert
 
 
@@ -39,7 +40,10 @@ class ZeekNoticeAlertSource:
                     raise ValueError(f"{self.path}:{line_number}: event must be an object")
                 if "note" not in event:
                     continue
-                alert_id = f"{self.source_name}:{event.get('uid', f'line-{line_number}') }"
+                alert_id = normalize_alert_id(
+                    self.source_name,
+                    event.get("uid") or f"line-{line_number}",
+                )
                 payload = {
                     "source": self.source_name,
                     "alert_id": alert_id,

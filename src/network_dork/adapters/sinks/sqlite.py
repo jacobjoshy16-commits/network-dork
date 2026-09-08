@@ -1,7 +1,8 @@
 """SQLite canonical outcomes with audited, idempotent persistence.
 
-alert_id must be globally unique across configured alert sources.
-Normalizers for remote sources must namespace their native event IDs.
+Outcomes are keyed by ``(source, alert_id)``. The processed-alert store uses
+the same key, so two sources that reuse a native identifier cannot be given
+one another's investigation.
 """
 
 from __future__ import annotations
@@ -23,30 +24,60 @@ from network_dork.models import (
 class OutcomeConflictError(RuntimeError):
     pass
 
+class OutcomeSchemaError(RuntimeError):
+    pass
+
 class SQLiteReportSink:
     def __init__(self, path: str | Path, audit: AuditLog) -> None:
         self.path = Path(path)
         self.audit = audit
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connection() as connection:
+            self._guard_legacy_schema(connection)
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS outcomes (
-                    alert_id TEXT PRIMARY KEY,
+                    source TEXT NOT NULL,
+                    alert_id TEXT NOT NULL,
                     kind TEXT NOT NULL CHECK(kind IN ('report', 'failure')),
                     timestamp TEXT NOT NULL,
-                    payload TEXT NOT NULL
+                    payload TEXT NOT NULL,
+                    PRIMARY KEY (source, alert_id)
                 )
             """)
             connection.execute("""
                 CREATE VIEW IF NOT EXISTS reports AS
-                SELECT alert_id, timestamp, payload
+                SELECT source, alert_id, timestamp, payload
                 FROM outcomes WHERE kind='report'
             """)
             connection.execute("""
                 CREATE VIEW IF NOT EXISTS failures AS
-                SELECT alert_id, timestamp, payload
+                SELECT source, alert_id, timestamp, payload
                 FROM outcomes WHERE kind='failure'
             """)
+
+    @staticmethod
+    def _guard_legacy_schema(connection) -> None:
+        """Refuse to run against a pre-source outcomes table.
+
+        The old table keyed outcomes on alert_id alone. Silently adopting it
+        would keep the collision it allows, so operators migrate explicitly
+        with scripts/migrate_outcomes.py.
+        """
+        exists = connection.execute(
+            """SELECT 1 FROM sqlite_master
+               WHERE type='table' AND name='outcomes'"""
+        ).fetchone()
+        if exists is None:
+            return
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(outcomes)")
+        }
+        if "source" not in columns:
+            raise OutcomeSchemaError(
+                "This outcomes database predates source-scoped keys. "
+                "Migrate it with scripts/migrate_outcomes.py before running."
+            )
 
     @contextmanager
     def _connection(self):
@@ -80,6 +111,7 @@ class SQLiteReportSink:
 
     def _write(
         self,
+        source: str,
         value: InvestigationReport | FailureRecord,
         kind: str,
     ) -> None:
@@ -89,6 +121,7 @@ class SQLiteReportSink:
         parameters = {
             "sink": "sqlite",
             "path": str(self.path),
+            "source": source,
             "kind": kind,
             "payload_sha256": hashlib.sha256(payload.encode()).hexdigest(),
             "document": value.model_dump(mode="json"),
@@ -100,14 +133,16 @@ class SQLiteReportSink:
             with self._connection() as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 previous = connection.execute(
-                    "SELECT kind, payload FROM outcomes WHERE alert_id=?",
-                    (value.alert_id,),
+                    """SELECT kind, payload FROM outcomes
+                       WHERE source=? AND alert_id=?""",
+                    (source, value.alert_id),
                 ).fetchone()
                 inserted = previous is None
                 if previous is None:
                     connection.execute(
-                        "INSERT INTO outcomes VALUES (?, ?, ?, ?)",
+                        "INSERT INTO outcomes VALUES (?, ?, ?, ?, ?)",
                         (
+                            source,
                             value.alert_id,
                             kind,
                             value.timestamp.isoformat(),
@@ -117,7 +152,7 @@ class SQLiteReportSink:
                 elif previous != (kind, payload):
                     raise OutcomeConflictError(
                         "A different canonical outcome already exists "
-                        f"for {value.alert_id}"
+                        f"for {source}/{value.alert_id}"
                     )
         except Exception as exc:
             self._audit(
@@ -137,19 +172,20 @@ class SQLiteReportSink:
             {**parameters, "inserted": inserted},
         )
 
-    def write(self, report: InvestigationReport) -> None:
-        self._write(report, "report")
+    def write(self, source: str, report: InvestigationReport) -> None:
+        self._write(source, report, "report")
 
-    def write_failure(self, failure: FailureRecord) -> None:
-        self._write(failure, "failure")
+    def write_failure(self, source: str, failure: FailureRecord) -> None:
+        self._write(source, failure, "failure")
 
     def get_outcome(
-        self, alert_id: str
+        self, source: str, alert_id: str
     ) -> InvestigationReport | FailureRecord | None:
         with self._connection() as connection:
             row = connection.execute(
-                "SELECT kind, payload FROM outcomes WHERE alert_id=?",
-                (alert_id,),
+                """SELECT kind, payload FROM outcomes
+                   WHERE source=? AND alert_id=?""",
+                (source, alert_id),
             ).fetchone()
         if row is None:
             return None

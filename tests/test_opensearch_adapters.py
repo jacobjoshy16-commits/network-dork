@@ -192,11 +192,14 @@ def test_opensearch_sink_round_trip_and_conflict(tmp_path):
     )
     original = report()
     try:
-        sink.write(original)
-        sink.write(original)
-        assert sink.get_outcome(original.alert_id) == original
+        sink.write("synthetic", original)
+        sink.write("synthetic", original)
+        assert sink.get_outcome("synthetic", original.alert_id) == original
         with pytest.raises(OpenSearchOutcomeConflictError):
-            sink.write(original.model_copy(update={"summary": "different"}))
+            sink.write(
+                "synthetic",
+                original.model_copy(update={"summary": "different"}),
+            )
     finally:
         sink.close()
 

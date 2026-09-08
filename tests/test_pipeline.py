@@ -70,7 +70,7 @@ def test_happy_path_persists_report_and_audits_every_operation(tmp_path):
     results = pipeline.run_once()
     assert len(results) == 1
     assert isinstance(results[0], InvestigationReport)
-    assert sink.get_outcome(alert.alert_id) == results[0]
+    assert sink.get_outcome(alert.source, alert.alert_id) == results[0]
     assert len(llm.calls) == 1
     assert state.inspect(alert.source, alert.alert_id)["status"] == "succeeded"
 
@@ -114,7 +114,9 @@ def test_bounded_invalid_output_persists_only_explicit_failure(tmp_path, bad):
     assert len(results[0].errors) == 3
     assert len(llm.calls) == 3
     assert state.inspect(alert.source, alert.alert_id)["status"] == "failed"
-    assert isinstance(sink.get_outcome(alert.alert_id), FailureRecord)
+    assert isinstance(
+        sink.get_outcome(alert.source, alert.alert_id), FailureRecord
+    )
     with sqlite3.connect(tmp_path / "reports.sqlite3") as connection:
         assert connection.execute(
             "SELECT count(*) FROM reports"
@@ -171,7 +173,7 @@ def test_restart_skips_terminal_alert(tmp_path):
 def test_recovery_after_sink_commit_before_state_finish(tmp_path):
     pipeline, llm, sink, state, alert = build(tmp_path, [])
     existing = InvestigationReport.model_validate_json(valid_response())
-    sink.write(existing)
+    sink.write(alert.source, existing)
 
     assert state.claim(
         alert.source,
