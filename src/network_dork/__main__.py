@@ -264,10 +264,20 @@ def wire_pipeline(
     )
     return pipeline, llm
 
-def print_outcomes(results) -> int:
+def print_outcomes(results, as_json: bool = False) -> int:
+    """Print what each alert produced.
+
+    Readable by default: the point of the system is a person forming a
+    judgement quickly. --json is there for anything consuming the output.
+    """
     failures = 0
     for result in results:
-        typer.echo(result.model_dump_json(indent=2))
+        if as_json:
+            typer.echo(result.model_dump_json(indent=2))
+        elif isinstance(result, FailureRecord):
+            typer.echo(render_failure(result))
+        else:
+            typer.echo(render_report(result))
         failures += isinstance(result, FailureRecord)
     typer.echo(
         f"Completed: {len(results)}; failures: {failures}",
@@ -694,6 +704,9 @@ def run_command(
             help="Explicit deterministic test client; never real inference.",
         ),
     ] = False,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
 ) -> None:
     """Process one poll and retain restart-safe state."""
     settings = load_config(config)
@@ -705,7 +718,7 @@ def run_command(
     with ExitStack() as resources:
         pipeline, _ = wire_pipeline(settings, resources, fake=fake)
         results = pipeline.run_once()
-    if print_outcomes(results):
+    if print_outcomes(results, as_json):
         raise typer.Exit(code=1)
 
 @app.command("demo")

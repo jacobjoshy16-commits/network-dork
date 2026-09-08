@@ -291,6 +291,7 @@ The script also verifies that the telemetry credential cannot write to the repor
 | Document | Contents |
 |---|---|
 | **`docs/your-testing-loop.md`** | **Start here: four commands to run and judge it yourself** |
+| `docs/demo.md` | Presenting it, and the questions to expect |
 | `docs/architecture.md` | How the engine works, end to end |
 | `docs/evaluation.md` | Whether the forecaster works, measured |
 | `docs/testing.md` | Step-by-step local verification |
