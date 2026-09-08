@@ -2,19 +2,6 @@
 
 Network-dork is a local AI assistant for security teams who already have alerts but not enough time to investigate them all. It reads alerts from tools you already run, gathers nearby context from local telemetry, and writes a plain-language report for a human analyst. It is designed for environments where cloud security copilots are not acceptable: air-gapped networks, regulated systems, and places where alert data cannot leave the network. It does not create detections and it does not take actions. It only investigates existing alerts with read-only telemetry access and a separate write-only report destination.
 
-## Verification snapshot
-
-- 290 automated tests passing.
-- Forecast enrichment finds all three campaigns in the evaluation corpus at
-  precision 1.00 with zero benign windows flagged (`docs/evaluation.md`).
-- `python -m network_dork run --fake` processes all 12 fixture alerts.
-- `python -m network_dork eval` scores forecasters against labelled data.
-- `docs/testing.md` is a step-by-step guide to verifying all of this
-  yourself; every command in it was run.
-
-New readers should start with **`docs/architecture.md`**, which explains the
-whole engine and why each part exists.
-
 ## What it does
 
 Given an existing alert, network-dork can:
@@ -291,7 +278,6 @@ The script also verifies that the telemetry credential cannot write to the repor
 | Document | Contents |
 |---|---|
 | **`docs/your-testing-loop.md`** | **Start here: four commands to run and judge it yourself** |
-| `docs/demo.md` | Presenting it, and the questions to expect |
 | `docs/architecture.md` | How the engine works, end to end |
 | `docs/evaluation.md` | Whether the forecaster works, measured |
 | `docs/testing.md` | Step-by-step local verification |

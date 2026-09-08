@@ -31,7 +31,7 @@ uv sync --extra dev
 make test
 ```
 
-**Expect:** `290 passed`. Takes a few seconds.
+**Expect:** every test passing, in a few seconds.
 
 This is the fastest signal that the checkout is sound. If anything fails
 here, nothing below is meaningful.

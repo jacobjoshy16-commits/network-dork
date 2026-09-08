@@ -37,7 +37,13 @@ class ContextSettings(SettingsModel):
     # shipped llm.num_ctx of 8192 (llm.max_input_chars 32000) about 74
     # records fit in total, so 15 per kind across four kinds leaves margin.
     # Raise llm.num_ctx and llm.max_input_chars together before raising this.
-    max_records: int = Field(default=15, ge=1, le=10000)
+    max_records: int = Field(default=30, ge=1, le=10000)
+
+
+# Conservative planning figure for JSON evidence. Braces, quotes, colons,
+# IP octets and hex identifiers are mostly single tokens, so three characters
+# per token under-promises rather than over-promises.
+CHARS_PER_TOKEN = 3
 
 
 class LLMSettings(SettingsModel):
@@ -46,10 +52,42 @@ class LLMSettings(SettingsModel):
     temperature: float = Field(default=0.0, ge=0, le=2)
     timeout_seconds: float = Field(default=120.0, gt=0, le=3600)
     max_attempts: int = Field(default=3, ge=1, le=10)
-    num_ctx: int = Field(default=8192, ge=2048, le=32768)
+    # 24576 holds the worst-case prompt with headroom: 30 evidence records
+    # of each kind plus 20 forecast records. Whether a 3B model *reasons*
+    # well across that much context is not measured here and needs a real
+    # model run to judge; what is measured is that it fits.
+    num_ctx: int = Field(default=24576, ge=2048, le=32768)
     num_predict: int = Field(default=2048, ge=256, le=8192)
-    max_input_chars: int = Field(default=32000, ge=1024, le=500000)
+    # Measured, not assumed: a realistic Zeek flow record costs about 400
+    # characters of prompt and a forecast record about 570, over roughly
+    # 4,230 of fixed overhead. See tests/test_prompt_budget.py, which fails
+    # if a full context stops fitting.
+    max_input_chars: int = Field(default=60000, ge=1024, le=500000)
     max_response_bytes: int = Field(default=1048576, ge=1024, le=8388608)
+
+    @model_validator(mode="after")
+    def input_budget_fits_the_context_window(self) -> "LLMSettings":
+        """Refuse a limit the model's context cannot actually hold.
+
+        num_ctx is measured in tokens and covers input *and* output. A
+        max_input_chars larger than the remaining budget is accepted here and
+        then silently truncated by the model, which then reasons on partial
+        evidence with nothing reporting it. That was the shipped default
+        before this check existed: 32,000 characters against a window that
+        held about 18,400.
+        """
+        available = (self.num_ctx - self.num_predict) * CHARS_PER_TOKEN
+        if available < 1:
+            raise ValueError("num_predict leaves no room for input")
+        if self.max_input_chars > available:
+            raise ValueError(
+                f"max_input_chars ({self.max_input_chars:,}) exceeds what "
+                f"num_ctx {self.num_ctx:,} can hold after reserving "
+                f"num_predict {self.num_predict:,} for output "
+                f"(about {available:,} characters). Raise num_ctx or lower "
+                "max_input_chars."
+            )
+        return self
 
 
 class ForecastSettings(SettingsModel):

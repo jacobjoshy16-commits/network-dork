@@ -417,60 +417,6 @@ def test_timesfm_client_refuses_a_public_endpoint():
 # --- prompt budget ----------------------------------------------------------
 
 
-def test_a_fully_loaded_enriched_prompt_fits_the_default_input_budget():
-    """Evidence caps must keep an enriched prompt inside the model's budget.
-
-    Found end to end rather than in a unit test: with uncapped evidence a
-    realistic host produced a 3.4M-character prompt, which would fail every
-    enriched investigation with an input-limit error.
-    """
-    from network_dork.config import ContextSettings, LLMSettings
-    from network_dork.models import AlertContext, EvidenceRecord
-    from network_dork.prompts import SYSTEM_PROMPT, InvestigationPrompt
-
-    cap = ContextSettings().max_records
-    budget = LLMSettings().max_input_chars
-
-    def flow(index: int, kind: str) -> EvidenceRecord:
-        moment = ALERT_TIME - timedelta(minutes=index + 1)
-        return EvidenceRecord(
-            evidence_id=f"{kind}:conn.log:{index}",
-            kind=kind,
-            source=f"fixtures/zeek/conn.log:{index}",
-            timestamp=moment,
-            fields={
-                "ts": moment.isoformat(),
-                "id.orig_h": "10.77.0.1",
-                "id.resp_h": "192.0.2.1",
-                "id.orig_p": 44821,
-                "id.resp_p": 443,
-                "proto": "tcp",
-                "orig_bytes": 5210,
-                "resp_bytes": 1180,
-                "conn_state": "SF",
-                "duration": 1.42,
-            },
-        )
-
-    context = AlertContext(
-        alert=alert(),
-        window_start=ALERT_TIME - timedelta(days=7),
-        window_end=ALERT_TIME,
-        flows=[flow(i, "flows") for i in range(cap)],
-        dns=[flow(i, "dns") for i in range(cap)],
-        auth=[flow(i, "auth") for i in range(cap)],
-        forecast=[flow(i, "forecast") for i in range(cap)],
-        prior_alert_count=3,
-        unavailable={},
-        truncated={"flows": 4000},
-    )
-    system, user = InvestigationPrompt("qwen2.5:3b-instruct").render(context)
-    assert len(system) + len(user) < budget, (
-        f"a full context renders {len(system) + len(user):,} chars against a "
-        f"{budget:,} budget; lower context.max_records or raise llm.num_ctx"
-    )
-
-
 def test_truncated_evidence_counts_reach_the_model():
     """The model must be told what it is not seeing."""
     from network_dork.models import AlertContext

@@ -4,7 +4,7 @@ alerts:
 context:
   zeek_directory: fixtures/zeek
   window_days: 7
-  max_records: 15
+  max_records: 30
 
 llm:
   base_url: http://127.0.0.1:11434
@@ -12,9 +12,9 @@ llm:
   temperature: 0.0
   timeout_seconds: 120.0
   max_attempts: 3
-  num_ctx: 8192
+  num_ctx: 24576
   num_predict: 2048
-  max_input_chars: 32000
+  max_input_chars: 60000
   max_response_bytes: 1048576
 
 opensearch:

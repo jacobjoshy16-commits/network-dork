@@ -73,7 +73,7 @@ went up, the change was not worth it however good it looked.
 ## Two things worth knowing
 
 **Run `trace` on realistic data, not just the fixtures.** Two real bugs were
-found this way and neither showed up in 285 unit tests: a forecast band that
+found this way and neither showed up in the unit tests: a forecast band that
 collapsed to zero width on hosts that are quiet overnight, and an audit file
 format that could not be extended. Generated data with a full daily rhythm
 exercises paths that small fixtures never reach.
