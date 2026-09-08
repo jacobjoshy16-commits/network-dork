@@ -541,3 +541,97 @@ def test_a_host_active_only_recently_is_refused(tmp_path):
             buckets=PERIOD * 14,
             bucket_seconds=BUCKET,
         )
+
+
+def test_a_quiet_period_does_not_collapse_the_band():
+    """A host idle overnight must not flag on its first morning connection.
+
+    Found by running against generated telemetry rather than a test fixture:
+    a bucket predicted at zero got a zero-width band from a purely relative
+    floor, so any traffic at all scored as a huge deviation.
+    """
+    quiet_nights = []
+    for day in range(5):
+        for index in range(PERIOD):
+            hour = (index * BUCKET) / 3600
+            quiet_nights.append(0.0 if hour < 7 or hour > 19 else 20.0)
+    series = TimeSeries(
+        metric="conn_count",
+        entity="10.77.0.1",
+        bucket_seconds=BUCKET,
+        start=ALERT_TIME - timedelta(seconds=BUCKET * len(quiet_nights)),
+        values=quiet_nights,
+    )
+    prediction = SeasonalNaiveForecaster(period_buckets=PERIOD).forecast(
+        series, 12
+    )
+    assert all(
+        high > low for low, high in zip(prediction.lower, prediction.upper)
+    ), "a zero prediction must still produce a band with width"
+
+
+def test_ordinary_traffic_after_a_quiet_night_scores_zero():
+    values = []
+    for day in range(5):
+        for index in range(PERIOD):
+            hour = (index * BUCKET) / 3600
+            values.append(0.0 if hour < 7 else 20.0)
+    series = TimeSeries(
+        metric="conn_count",
+        entity="10.77.0.1",
+        bucket_seconds=BUCKET,
+        start=ALERT_TIME - timedelta(seconds=BUCKET * len(values)),
+        values=values,
+    )
+    history = series.model_copy(update={"values": values[:-12]})
+    prediction = SeasonalNaiveForecaster(period_buckets=PERIOD).forecast(
+        history, 12
+    )
+    points = score(
+        series=series,
+        actual=values[-12:],
+        forecast=prediction,
+        first_index=len(values) - 12,
+    )
+    assert max(point.score for point in points) < 4.0
+
+
+def test_a_negative_band_edge_is_hidden_from_the_analyst_not_from_scoring():
+    """"expected -0.4 connections" reads as a broken tool, so it is clamped
+    for display. Clamping it in the forecaster instead was measured and made
+    accuracy worse: the narrower band took the evaluation corpus from zero
+    false positives to seven.
+    """
+    from network_dork.models import AlertContext, EvidenceRecord
+    from network_dork.render import render_forecast
+
+    context = AlertContext(
+        alert=alert(),
+        window_start=ALERT_TIME - timedelta(days=7),
+        window_end=ALERT_TIME,
+        flows=[],
+        dns=[],
+        auth=[],
+        forecast=[
+            EvidenceRecord(
+                evidence_id="forecast:conn_count:x",
+                kind="forecast",
+                source="forecast:test",
+                timestamp=ALERT_TIME - timedelta(hours=1),
+                fields={
+                    "metric": "conn_count",
+                    "observed": 12.0,
+                    "predicted": 0.0,
+                    "predicted_range": [-0.4, 0.4],
+                    "deviation_score": 14.5,
+                    "direction": "above_forecast",
+                    "note": "Not a detection.",
+                },
+            )
+        ],
+        prior_alert_count=0,
+        unavailable={},
+    )
+    rendered = render_forecast(context)
+    assert "-0.4" not in rendered
+    assert "0.0 to 0.4" in rendered

@@ -167,3 +167,36 @@ def test_the_chain_survives_a_large_file_without_full_rereads(tmp_path):
         log.record(event(number))
     count, _ = verify_chain(path)
     assert count == 300
+
+
+def test_a_pre_chain_file_is_refused_with_a_migration_path(tmp_path):
+    """Audit files written before hash chaining must not be silently extended.
+
+    Found by running the trace command against a var/ directory left over
+    from an earlier version: appending would have produced a file whose
+    early records could never be verified.
+    """
+    path = tmp_path / "audit.jsonl"
+    path.write_text(
+        json.dumps({
+            "timestamp": "2026-01-01T00:00:00Z",
+            "alert_id": "syn-001",
+            "operation_id": "1",
+            "action": "context_query",
+            "stage": "attempt",
+            "parameters": {},
+        }) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(AuditChainError, match="predates hash chaining"):
+        JsonlAuditLog(path).record(event(1))
+
+
+def test_the_refusal_names_the_file_and_the_remedy(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    path.write_text('{"action": "context_query"}\n', encoding="utf-8")
+    with pytest.raises(AuditChainError) as caught:
+        JsonlAuditLog(path).record(event(1))
+    message = str(caught.value)
+    assert "audit.jsonl" in message
+    assert "remains readable" in message

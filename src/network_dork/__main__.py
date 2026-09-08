@@ -27,6 +27,12 @@ from network_dork.config import AdapterDefinition, Settings, load_config
 from network_dork.grounding import check as grounding_check
 from network_dork.models import FailureRecord
 from network_dork.pipeline import InvestigationPipeline
+from network_dork.render import (
+    render_evidence,
+    render_failure,
+    render_forecast,
+    render_report,
+)
 from network_dork.prompts import (
     AgentProfile,
     InvestigationPrompt,
@@ -293,6 +299,115 @@ def adapters(
             typer.echo(
                 f"{kind}\t{name}\t{definition.class_path}"
             )
+
+@app.command("trace")
+def trace_command(
+    alert_id: Annotated[str, typer.Option("--alert-id")],
+    config: Annotated[Path | None, typer.Option("--config")] = None,
+    fake: Annotated[
+        bool,
+        typer.Option("--fake", help="Deterministic test client, no real model."),
+    ] = False,
+    show_prompt: Annotated[
+        bool, typer.Option("--show-prompt", help="Print the full model input.")
+    ] = False,
+) -> None:
+    """Walk one alert through every stage and show the work.
+
+    Nothing is written: no report, no state, no lease. Run it as often as you
+    like on the same alert. This is the command for understanding what the
+    engine does and for judging whether its answer is any good.
+    """
+    settings = load_config(config)
+    profile = agent_profile(settings)
+
+    with ExitStack() as resources:
+        source = source_for(settings, resources)
+        matches = [a for a in source.poll() if a.alert_id == alert_id]
+        if not matches:
+            raise typer.BadParameter(f"Alert not found: {alert_id}")
+        alert = matches[0]
+
+        typer.echo("\n=== 1. THE ALERT (this already fired somewhere) ===")
+        typer.echo(f"  id       {alert.alert_id}   from {alert.source}")
+        typer.echo(f"  time     {alert.timestamp:%Y-%m-%d %H:%M UTC}")
+        typer.echo(f"  title    {alert.title}")
+        if alert.description:
+            typer.echo(f"  detail   {alert.description}")
+
+        audit = JsonlAuditLog(settings.storage.audit_path, current_identity())
+        context = context_for(settings, audit, resources).gather(alert)
+
+        typer.echo(
+            "\n=== 2. EVIDENCE GATHERED (read-only, from your telemetry) ==="
+        )
+        typer.echo(render_evidence(context))
+
+        typer.echo(
+            "\n=== 3. FORECAST EVIDENCE (the forecaster's contribution) ==="
+        )
+        typer.echo(render_forecast(context))
+
+        name = "fake" if fake else settings.runtime.llm_adapter
+        definition = adapter_definition(settings, "llm", name)
+        expected = FAKE_REFERENCE if fake else OLLAMA_REFERENCE
+        if definition.class_path != expected:
+            raise typer.BadParameter(
+                "Runtime inference must use Ollama; fake requires --fake"
+            )
+        llm = build_adapter(settings, "llm", name, {"audit": audit}, resources)
+        model_version = "fake:test-only" if fake else settings.llm.model
+        prompts = InvestigationPrompt(model_version, agent=profile)
+        system, user = prompts.render(context)
+
+        offered = json.loads(user)["allowed_context_ids"]
+        typer.echo("\n=== 4. WHAT THE LANGUAGE MODEL IS ASKED ===")
+        typer.echo(f"  agent        {profile.name} ({profile.role})")
+        typer.echo(f"  model        {model_version}")
+        typer.echo(f"  prompt size  {len(system) + len(user):,} characters")
+        typer.echo(f"  may cite     {len(offered)} evidence identifiers:")
+        for identifier in offered:
+            typer.echo(f"                 {identifier}")
+        if show_prompt:
+            typer.echo("\n--- system prompt ---")
+            typer.echo(system)
+            typer.echo("--- evidence given to the model ---")
+            typer.echo(json.dumps(json.loads(user), indent=2)[:4000])
+
+        typer.echo("\n=== 5. WHAT THE MODEL ANSWERED ===")
+        try:
+            raw = llm.complete(system, user)
+        except Exception as exc:
+            typer.echo(f"  model call failed: {type(exc).__name__}: {exc}")
+            raise typer.Exit(code=1) from exc
+        typer.echo(f"  {len(raw):,} characters of JSON returned")
+
+        typer.echo("\n=== 6. CHECKS (why an answer can be rejected) ===")
+        try:
+            report = InvestigationPipeline._validate_response(
+                raw, alert, context, model_version, user
+            )
+            typer.echo("  schema      PASS  shape, identity, cited ids all valid")
+        except (ValueError, TypeError) as exc:
+            typer.echo(f"  schema      FAIL  {exc}")
+            typer.echo("\n  The model's answer was not usable. In a real run it "
+                       "would be retried, then stored as a failure record.")
+            raise typer.Exit(code=1) from exc
+
+        violations = grounding_check(report, context)
+        if violations:
+            typer.echo("  grounding   FAIL")
+            for violation in violations:
+                typer.echo(f"                {violation}")
+            typer.echo("\n  The report was well formed but not supportable. In a "
+                       "real run it would be retried, then stored as a failure.")
+            raise typer.Exit(code=1)
+        typer.echo("  grounding   PASS  entities cited, no action claims, "
+                   "confidence supportable")
+
+        typer.echo("\n=== 7. WHAT AN ANALYST READS ===")
+        typer.echo(render_report(report, context))
+
 
 @app.command("readiness")
 def readiness_command(

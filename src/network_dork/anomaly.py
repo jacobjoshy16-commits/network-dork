@@ -173,21 +173,42 @@ class SeasonalNaiveForecaster:
         ) * _MAD_TO_SIGMA
         margin = self.band_sigma * spread
 
-        # A flawlessly periodic history yields a zero-width band, which would
-        # make every deviation score maximally. Floor the band against the
-        # prediction's own magnitude so ordinary variation stays inside it.
+        # Two ways the band collapses, both of which manufacture false
+        # positives, and both found on realistic data rather than in tests:
+        #
+        # A flawlessly periodic history gives zero spread, so the band has no
+        # width at all.
+        #
+        # A bucket predicted at or near zero -- any host that is quiet
+        # overnight -- gets a zero-width band from a purely relative floor,
+        # and then the first connection of the morning scores enormously.
+        #
+        # So the floor is relative to the prediction *or* to what this host
+        # typically does, whichever is larger.
+        active = [value for value in values if value > 0]
+        typical = statistics.median(active) if active else 0.0
         centred = [value + centre for value in median]
         margins = [
-            max(margin, self.min_band_fraction * abs(value))
+            max(
+                margin,
+                self.min_band_fraction * abs(value),
+                self.min_band_fraction * typical,
+            )
             for value in centred
         ]
+        # A symmetric band on a non-negative quantity can dip below zero.
+        # Clamping it here was tried and measurably made things worse: a
+        # narrower band raises every score, and the evaluation corpus went
+        # from zero false positives to seven. The band keeps its statistical
+        # width; render.py clamps the *display* so an analyst never reads
+        # "expected -0.4 connections".
+        lower = [value - width for value, width in zip(centred, margins)]
+
         return Forecast(
             model=self.name,
             model_digest=None,
             median=centred,
-            lower=[
-                value - width for value, width in zip(centred, margins)
-            ],
+            lower=lower,
             upper=[
                 value + width for value, width in zip(centred, margins)
             ],

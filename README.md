@@ -4,7 +4,7 @@ Network-dork is a local AI assistant for security teams who already have alerts 
 
 ## Verification snapshot
 
-- 285 automated tests passing.
+- 290 automated tests passing.
 - Forecast enrichment finds all three campaigns in the evaluation corpus at
   precision 1.00 with zero benign windows flagged (`docs/evaluation.md`).
 - `python -m network_dork run --fake` processes all 12 fixture alerts.
@@ -290,6 +290,7 @@ The script also verifies that the telemetry credential cannot write to the repor
 
 | Document | Contents |
 |---|---|
+| **`docs/your-testing-loop.md`** | **Start here: four commands to run and judge it yourself** |
 | `docs/architecture.md` | How the engine works, end to end |
 | `docs/evaluation.md` | Whether the forecaster works, measured |
 | `docs/testing.md` | Step-by-step local verification |

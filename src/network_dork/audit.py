@@ -123,8 +123,25 @@ class JsonlAuditLog:
             return 0, GENESIS
         try:
             previous = json.loads(line)
+        except ValueError as exc:
+            raise AuditChainError(
+                f"{self.path}: the last audit record is not valid JSON, so a "
+                "new record cannot be linked to it"
+            ) from exc
+
+        if "sequence" not in previous or "record_sha256" not in previous:
+            # Written before this file was hash-chained. Appending would
+            # produce a file whose first records can never be verified, so
+            # the operator rotates it instead and the old file stays readable.
+            raise AuditChainError(
+                f"{self.path}: this audit file predates hash chaining and "
+                "cannot be extended. Move it aside (for example to "
+                f"{self.path.name}.pre-chain) and a new chain will start; "
+                "the old file remains readable and is not deleted."
+            )
+        try:
             return int(previous["sequence"]), str(previous["record_sha256"])
-        except (ValueError, KeyError, TypeError) as exc:
+        except (ValueError, TypeError) as exc:
             raise AuditChainError(
                 f"{self.path}: the last audit record is unreadable, so a new "
                 "record cannot be linked to it"
