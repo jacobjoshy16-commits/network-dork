@@ -43,6 +43,7 @@ class ForecastEnrichingContextProvider:
         horizon_buckets: int = 72,
         max_evidence: int = 5,
         min_score: float = 24.0,
+        min_score_by_metric: dict[str, float] | None = None,
     ) -> None:
         if bucket_seconds < 1:
             raise ValueError("bucket_seconds must be positive")
@@ -52,19 +53,27 @@ class ForecastEnrichingContextProvider:
             raise ValueError("max_evidence must be positive")
         if min_score < 0:
             raise ValueError("min_score must not be negative")
+        if any(value < 0 for value in (min_score_by_metric or {}).values()):
+            raise ValueError("per-metric thresholds must not be negative")
         self.inner = inner
         self.series_provider = series_provider
         self.forecaster = forecaster
         self.audit = audit
         self.metrics = list(
             metrics
-            or ["conn_count", "bytes_out", "distinct_destinations"]
+            or [
+                "conn_count",
+                "bytes_out",
+                "distinct_destinations",
+                "conn_regularity",
+            ]
         )
         self.bucket_seconds = bucket_seconds
         self.history_buckets = history_buckets
         self.horizon_buckets = horizon_buckets
         self.max_evidence = max_evidence
         self.min_score = min_score
+        self.min_score_by_metric = dict(min_score_by_metric or {})
 
     def close(self) -> None:
         for candidate in (self.inner, self.series_provider, self.forecaster):
@@ -123,6 +132,10 @@ class ForecastEnrichingContextProvider:
             },
         )
 
+    def _threshold(self, metric: str) -> float:
+        """Each metric carries its own noise floor; one bar does not fit all."""
+        return self.min_score_by_metric.get(metric, self.min_score)
+
     def _forecast_metric(
         self, alert: Alert, metric: str, entity: str
     ) -> list[EvidenceRecord]:
@@ -154,7 +167,7 @@ class ForecastEnrichingContextProvider:
         return [
             self._evidence(metric, entity, deviation)
             for deviation in most_deviant(
-                deviations, self.max_evidence, self.min_score
+                deviations, self.max_evidence, self._threshold(metric)
             )
         ]
 
@@ -196,7 +209,8 @@ class ForecastEnrichingContextProvider:
         if not evidence and len(skipped) < len(self.metrics):
             reason = (
                 "Traffic was forecastable and stayed within its predicted "
-                f"range (no deviation reached a score of {self.min_score})"
+                "range (no deviation reached this metric's evidence "
+                "threshold)"
             )
             self._record(
                 alert,

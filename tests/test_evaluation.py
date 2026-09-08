@@ -136,15 +136,17 @@ def test_shipped_threshold_still_finds_volume_shaped_attacks(baseline_points):
     assert found["internal_scanning"] is True
 
 
-def test_beaconing_is_missed_and_that_is_recorded_not_hidden(baseline_points):
-    """Documented limitation, asserted so it cannot be quietly forgotten.
+def test_volume_metrics_alone_cannot_see_beaconing(baseline_points):
+    """The gap that motivated the regularity metric.
 
-    Low-rate beaconing is a periodicity anomaly, not a volume anomaly, and
-    the seasonal-naive baseline compares magnitudes only. This is the gap a
-    learned forecaster would have to close to justify its dependencies.
+    Beaconing is a rhythm, not a volume event, so scoring only the count and
+    byte metrics at a shared threshold misses it. Kept as a test because it
+    is the reason conn_regularity and per-metric thresholds exist.
     """
-    found = attacks_found(baseline_points, threshold=24.0)
-    assert found["c2_beaconing"] is False
+    volume_only = [
+        item for item in baseline_points if item.metric != "conn_regularity"
+    ]
+    assert attacks_found(volume_only, threshold=24.0)["c2_beaconing"] is False
 
 
 def test_a_low_threshold_would_flag_benign_windows(baseline_points):
@@ -196,3 +198,50 @@ def test_min_score_admits_a_genuine_deviation():
 def test_negative_min_score_is_rejected():
     with pytest.raises(ValueError):
         most_deviant([], 5, min_score=-1.0)
+
+
+# --- per-metric operating point ---------------------------------------------
+
+
+def test_configured_thresholds_clear_every_metric_noise_floor(baseline_points):
+    """Each threshold must sit above that metric's worst benign score."""
+    from network_dork.config import ForecastSettings
+    from network_dork.evaluation import noise_floor
+
+    settings = ForecastSettings()
+    floors = noise_floor(baseline_points)
+    for metric, floor in floors.items():
+        configured = settings.min_score_by_metric.get(metric, settings.min_score)
+        assert configured > floor, (
+            f"{metric} threshold {configured} is at or below its benign "
+            f"floor {floor}: it will produce false positives"
+        )
+
+
+def test_per_metric_thresholds_find_all_three_campaigns(baseline_points):
+    """The result the regularity metric was added to achieve."""
+    from network_dork.config import ForecastSettings
+
+    settings = ForecastSettings()
+    found = attacks_found(
+        baseline_points, settings.min_score_by_metric, settings.min_score
+    )
+    assert found["c2_beaconing"] is True
+    assert found["data_exfiltration"] is True
+    assert found["internal_scanning"] is True
+
+
+def test_per_metric_thresholds_still_flag_no_benign_window(baseline_points):
+    from network_dork.config import ForecastSettings
+
+    settings = ForecastSettings()
+    board = tally(
+        baseline_points, settings.min_score_by_metric, settings.min_score
+    )
+    assert board.false_positives == 0
+    assert board.confounder_flags == 0
+
+
+def test_a_single_global_threshold_still_misses_beaconing(baseline_points):
+    """Why per-metric thresholds exist, asserted so the reason survives."""
+    assert attacks_found(baseline_points, 24.0)["c2_beaconing"] is False

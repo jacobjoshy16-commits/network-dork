@@ -18,15 +18,22 @@ from typing import Any, Callable
 
 from network_dork.anomaly import InsufficientHistory
 from network_dork.models import TimeSeries
+from network_dork.regularity import rolling_regularity
 
 # Metric name -> (accumulator kind, value extractor)
-# "count" adds one per matching row, "sum" adds the extracted number, and
-# "distinct" counts unique extracted values per bucket.
+# "count" adds one per matching row, "sum" adds the extracted number,
+# "distinct" counts unique extracted values per bucket, and "regularity"
+# counts like "count" then reports how evenly spaced those counts were.
 METRICS: dict[str, tuple[str, str]] = {
     "conn_count": ("count", ""),
     "bytes_out": ("sum", "orig_bytes"),
     "distinct_destinations": ("distinct", "id.resp_h"),
+    "conn_regularity": ("regularity", ""),
 }
+# Trailing buckets used to judge regularity. Twelve five-minute buckets is
+# one hour: long enough for a rhythm to show, short enough that a beacon
+# starting mid-window still moves the number.
+REGULARITY_WINDOW = 12
 
 
 class ZeekBucketTimeSeriesProvider:
@@ -35,6 +42,7 @@ class ZeekBucketTimeSeriesProvider:
         directory: str | Path,
         *,
         filename: str = "conn.log",
+        regularity_window: int = REGULARITY_WINDOW,
         min_observations: int = 100,
         min_span_fraction: float = 0.5,
         clock: Callable[[], datetime] | None = None,
@@ -44,6 +52,7 @@ class ZeekBucketTimeSeriesProvider:
         if not 0 < min_span_fraction <= 1:
             raise ValueError("min_span_fraction must be within (0, 1]")
         self.path = Path(directory) / filename
+        self.regularity_window = regularity_window
         self.min_observations = min_observations
         self.min_span_fraction = min_span_fraction
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -115,7 +124,7 @@ class ZeekBucketTimeSeriesProvider:
                     earliest = timestamp
                 if latest is None or timestamp > latest:
                     latest = timestamp
-                if kind == "count":
+                if kind in ("count", "regularity"):
                     totals[index] += 1.0
                 elif kind == "sum":
                     raw = row.get(field, 0)
@@ -127,6 +136,8 @@ class ZeekBucketTimeSeriesProvider:
 
         if kind == "distinct":
             totals = [float(len(bucket)) for bucket in distinct]
+        elif kind == "regularity":
+            totals = rolling_regularity(totals, self.regularity_window)
 
         # Zero-filled buckets are not history. Forecasting a mostly-empty
         # series makes any real traffic look like a large deviation, which is

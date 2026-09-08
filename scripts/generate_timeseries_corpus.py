@@ -32,7 +32,14 @@ BUCKET_SECONDS = 300
 DAY_BUCKETS = 86400 // BUCKET_SECONDS  # 288
 DAYS = 30
 TOTAL = DAYS * DAY_BUCKETS
-METRICS = ("conn_count", "bytes_out", "distinct_destinations")
+METRICS = (
+    "conn_count",
+    "bytes_out",
+    "distinct_destinations",
+    "conn_regularity",
+)
+# Trailing buckets used to judge how evenly spaced connections are.
+REGULARITY_WINDOW = 12
 
 
 @dataclass
@@ -47,6 +54,10 @@ class Window:
     conn_multiplier: float = 1.0
     bytes_multiplier: float = 1.0
     destinations: int | None = None
+    # Beaconing's defining trait: a fixed callback interval that ignores
+    # business hours. Modelling it as a volume bump with ordinary variance
+    # would make the corpus test something else entirely.
+    regular: bool = False
 
 
 @dataclass
@@ -142,9 +153,10 @@ HOSTS = [
                 hours=6.0,
                 category="c2_beaconing",
                 malicious=True,
-                conn_multiplier=7.0,
+                conn_multiplier=2.6,
                 bytes_multiplier=1.4,
                 destinations=2,
+                regular=True,
             )
         ],
     ),
@@ -208,6 +220,8 @@ def window_for(host: Host, index: int) -> Window | None:
 
 
 def build_host(host: Host, rng: random.Random) -> dict[str, list[float]]:
+    from network_dork.regularity import rolling_regularity  # noqa: F401
+
     series: dict[str, list[float]] = {metric: [] for metric in METRICS}
     for index in range(TOTAL):
         day = index // DAY_BUCKETS
@@ -226,7 +240,14 @@ def build_host(host: Host, rng: random.Random) -> dict[str, list[float]]:
 
         window = window_for(host, index)
         if window is not None:
-            conns *= window.conn_multiplier
+            if window.regular:
+                # A fixed-interval callback: near-constant rate, indifferent
+                # to the working day. Volume barely moves; regularity does.
+                conns = host.base_conns * window.conn_multiplier * (
+                    1.0 + rng.gauss(0, 0.04)
+                )
+            else:
+                conns *= window.conn_multiplier
             per_conn *= window.bytes_multiplier
             if window.destinations is not None:
                 destinations = window.destinations * (
@@ -238,6 +259,9 @@ def build_host(host: Host, rng: random.Random) -> dict[str, list[float]]:
         series["distinct_destinations"].append(
             float(max(0, round(min(destinations, conns if conns > 1 else 1))))
         )
+    series["conn_regularity"] = rolling_regularity(
+        series["conn_count"], REGULARITY_WINDOW
+    )
     return series
 
 

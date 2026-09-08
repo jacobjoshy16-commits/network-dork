@@ -227,11 +227,25 @@ class Scoreboard:
         return self.confounder_flags / self.confounder_total
 
 
-def tally(points: list[EvaluationPoint], threshold: float) -> Scoreboard:
+def tally(
+    points: list[EvaluationPoint],
+    threshold: float | dict[str, float],
+    default: float = 24.0,
+) -> Scoreboard:
+    """Score at a single threshold, or one per metric.
+
+    Metrics carry different noise floors, so a mapping is the honest way to
+    set an operating point: a global bar is dictated by the noisiest metric.
+    """
+    def bar(metric: str) -> float:
+        if isinstance(threshold, dict):
+            return threshold.get(metric, default)
+        return threshold
+
     tp = fp = fn = tn = 0
     confounder_flags = confounder_total = 0
     for point in points:
-        flagged = point.peak_score >= threshold
+        flagged = point.peak_score >= bar(point.metric)
         if point.malicious:
             tp += flagged
             fn += not flagged
@@ -243,7 +257,7 @@ def tally(points: list[EvaluationPoint], threshold: float) -> Scoreboard:
             confounder_total += 1
             confounder_flags += flagged
     return Scoreboard(
-        threshold=threshold,
+        threshold=-1.0 if isinstance(threshold, dict) else threshold,
         true_positives=tp,
         false_positives=fp,
         false_negatives=fn,
@@ -260,7 +274,9 @@ def sweep(
 
 
 def attacks_found(
-    points: list[EvaluationPoint], threshold: float
+    points: list[EvaluationPoint],
+    threshold: float | dict[str, float],
+    default: float = 24.0,
 ) -> dict[str, bool]:
     """Was each malicious campaign caught by any evaluation point?
 
@@ -273,22 +289,48 @@ def attacks_found(
     for point in points:
         if not point.malicious or point.category is None:
             continue
-        hit = point.peak_score >= threshold
+        bar = (
+            threshold.get(point.metric, default)
+            if isinstance(threshold, dict)
+            else threshold
+        )
+        hit = point.peak_score >= bar
         caught[point.category] = caught.get(point.category, False) or hit
     return caught
 
 
+def noise_floor(points: list[EvaluationPoint]) -> dict[str, float]:
+    """Highest benign score seen per metric.
+
+    The starting point for a per-metric threshold, and the number that shows
+    why a single global bar cannot serve every metric.
+    """
+    floors: dict[str, float] = {}
+    for point in points:
+        if point.malicious:
+            continue
+        floors[point.metric] = max(floors.get(point.metric, 0.0), point.peak_score)
+    return floors
+
+
 def recall_by_category(
-    points: list[EvaluationPoint], threshold: float
+    points: list[EvaluationPoint],
+    threshold: float | dict[str, float],
+    default: float = 24.0,
 ) -> dict[str, tuple[int, int]]:
     """Per-category (found, total) for malicious windows."""
     found: dict[str, tuple[int, int]] = {}
     for point in points:
         if not point.malicious or point.category is None:
             continue
+        bar = (
+            threshold.get(point.metric, default)
+            if isinstance(threshold, dict)
+            else threshold
+        )
         hits, total = found.get(point.category, (0, 0))
         found[point.category] = (
-            hits + (point.peak_score >= threshold),
+            hits + (point.peak_score >= bar),
             total + 1,
         )
     return found

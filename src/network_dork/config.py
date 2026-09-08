@@ -65,10 +65,23 @@ class ForecastSettings(SettingsModel):
     horizon_buckets: int = Field(default=72, ge=1, le=1024)
     period_buckets: int = Field(default=288, ge=2, le=16000)
     max_evidence: int = Field(default=5, ge=1, le=50)
-    # Deviation score a bucket must reach to become evidence. 24.0 is the
-    # measured point on the evaluation corpus where precision reaches 1.00
-    # and no benign window is flagged; see docs/evaluation.md.
+    # Deviation score a bucket must reach to become evidence, used for any
+    # metric without its own entry below.
     min_score: float = Field(default=24.0, ge=0, le=10000)
+    # Metrics have very different noise floors, so one global threshold is
+    # set by the noisiest of them and buries the quietest. On the evaluation
+    # corpus the benign maximum ranges from 3.5 (conn_regularity) to 22.4
+    # (bytes_out); a single bar at 24 hid the beaconing signal completely.
+    # Each value sits above that metric's own benign maximum with margin.
+    # Re-derive these on real telemetry: see docs/evaluation.md.
+    min_score_by_metric: dict[str, float] = Field(
+        default_factory=lambda: {
+            "conn_count": 10.0,
+            "bytes_out": 25.0,
+            "distinct_destinations": 25.0,
+            "conn_regularity": 4.0,
+        }
+    )
     # Guards against forecasting a zero-padded series for a host with too
     # little real history.
     min_observations: int = Field(default=100, ge=1, le=1000000)

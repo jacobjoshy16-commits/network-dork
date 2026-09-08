@@ -324,6 +324,7 @@ def eval_command(
         Corpus,
         attacks_found,
         evaluate,
+        noise_floor,
         recall_by_category,
         sweep,
         tally,
@@ -384,10 +385,25 @@ def eval_command(
                 f"{board.confounder_flags:>10}/{board.confounder_total:<9}"
             )
 
-        board = tally(points, threshold)
-        typer.echo(f"\nAt threshold {threshold}:")
-        found = attacks_found(points, threshold)
-        by_category = recall_by_category(points, threshold)
+        typer.echo("\nBenign noise floor per metric (highest benign score):")
+        floors = noise_floor(points)
+        for metric in sorted(floors):
+            configured = settings.forecast.min_score_by_metric.get(
+                metric, settings.forecast.min_score
+            )
+            typer.echo(
+                f"  {metric:<24} floor {floors[metric]:7.2f}   "
+                f"configured threshold {configured:7.2f}"
+                + ("   TOO LOW" if configured <= floors[metric] else "")
+            )
+
+        per_metric = settings.forecast.min_score_by_metric
+        board = tally(points, per_metric, settings.forecast.min_score)
+        typer.echo("\nAt the configured per-metric thresholds:")
+        found = attacks_found(points, per_metric, settings.forecast.min_score)
+        by_category = recall_by_category(
+            points, per_metric, settings.forecast.min_score
+        )
         for category in sorted(by_category):
             hits, total = by_category[category]
             verdict = "FOUND" if found.get(category) else "MISSED"

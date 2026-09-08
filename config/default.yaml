@@ -166,3 +166,4 @@ adapters:
         horizon_buckets: "${forecast.horizon_buckets}"
         max_evidence: "${forecast.max_evidence}"
         min_score: "${forecast.min_score}"
+        min_score_by_metric: "${forecast.min_score_by_metric}"
