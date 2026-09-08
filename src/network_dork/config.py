@@ -29,6 +29,14 @@ class AlertsSettings(SettingsModel):
 class ContextSettings(SettingsModel):
     zeek_directory: Path = Path("fixtures/zeek")
     window_days: int = Field(default=7, ge=1, le=3650)
+    # Caps evidence per kind so a busy host cannot push the prompt past the
+    # model's input budget. Most recent records are kept.
+    #
+    # An evidence record costs roughly 380 characters of prompt. With the
+    # shipped llm.num_ctx of 8192 (llm.max_input_chars 32000) about 74
+    # records fit in total, so 15 per kind across four kinds leaves margin.
+    # Raise llm.num_ctx and llm.max_input_chars together before raising this.
+    max_records: int = Field(default=15, ge=1, le=10000)
 
 
 class LLMSettings(SettingsModel):
@@ -41,6 +49,29 @@ class LLMSettings(SettingsModel):
     num_predict: int = Field(default=2048, ge=256, le=8192)
     max_input_chars: int = Field(default=32000, ge=1024, le=500000)
     max_response_bytes: int = Field(default=1048576, ge=1024, le=8388608)
+
+
+class ForecastSettings(SettingsModel):
+    """Enrichment geometry.
+
+    history_buckets is the quality knob: a forecaster is only as good as the
+    history it is shown, and 14 days at five-minute buckets is the point where
+    daily and weekly rhythm becomes visible. horizon_buckets is the pre-alert
+    window that gets scored.
+    """
+
+    bucket_seconds: int = Field(default=300, ge=60, le=86400)
+    history_buckets: int = Field(default=4032, ge=2, le=16000)
+    horizon_buckets: int = Field(default=72, ge=1, le=1024)
+    period_buckets: int = Field(default=288, ge=2, le=16000)
+    max_evidence: int = Field(default=5, ge=1, le=50)
+    # Guards against forecasting a zero-padded series for a host with too
+    # little real history.
+    min_observations: int = Field(default=100, ge=1, le=1000000)
+    min_span_fraction: float = Field(default=0.5, gt=0, le=1)
+    base_url: str = "http://127.0.0.1:11435"
+    timeout_seconds: float = Field(default=60.0, gt=0, le=3600)
+    max_response_bytes: int = Field(default=4194304, ge=1024, le=33554432)
 
 
 class OpenSearchSettings(SettingsModel):
@@ -95,6 +126,10 @@ class RuntimeSettings(SettingsModel):
     context_adapter: str = "zeek_logs"
     llm_adapter: str = "ollama"
     sink_adapter: str = "sqlite"
+    # Enrichment is opt-in. Unset means the investigation path is unchanged.
+    forecast_adapter: str | None = None
+    timeseries_adapter: str = "zeek_buckets"
+    forecaster_adapter: str = "baseline"
 
 
 class Settings(SettingsModel):
@@ -102,6 +137,7 @@ class Settings(SettingsModel):
     context: ContextSettings = Field(default_factory=ContextSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     opensearch: OpenSearchSettings = Field(default_factory=OpenSearchSettings)
+    forecast: ForecastSettings = Field(default_factory=ForecastSettings)
     storage: StorageSettings = Field(default_factory=StorageSettings)
     audit: AuditSettings = Field(default_factory=AuditSettings)
     credentials: Credentials = Field(default_factory=Credentials)
@@ -115,6 +151,7 @@ ENV_PATHS = {
     "NETWORK_DORK_ALERTS_PATH": ("alerts", "path"),
     "NETWORK_DORK_ZEEK_DIRECTORY": ("context", "zeek_directory"),
     "NETWORK_DORK_CONTEXT_WINDOW_DAYS": ("context", "window_days"),
+    "NETWORK_DORK_CONTEXT_MAX_RECORDS": ("context", "max_records"),
     "NETWORK_DORK_OLLAMA_BASE_URL": ("llm", "base_url"),
     "NETWORK_DORK_MODEL": ("llm", "model"),
     "NETWORK_DORK_TEMPERATURE": ("llm", "temperature"),
@@ -154,6 +191,14 @@ ENV_PATHS = {
     "NETWORK_DORK_CONTEXT_ADAPTER": ("runtime", "context_adapter"),
     "NETWORK_DORK_LLM_ADAPTER": ("runtime", "llm_adapter"),
     "NETWORK_DORK_SINK_ADAPTER": ("runtime", "sink_adapter"),
+    "NETWORK_DORK_FORECAST_ADAPTER": ("runtime", "forecast_adapter"),
+    "NETWORK_DORK_TIMESERIES_ADAPTER": ("runtime", "timeseries_adapter"),
+    "NETWORK_DORK_FORECASTER_ADAPTER": ("runtime", "forecaster_adapter"),
+    "NETWORK_DORK_FORECAST_BASE_URL": ("forecast", "base_url"),
+    "NETWORK_DORK_FORECAST_BUCKET_SECONDS": ("forecast", "bucket_seconds"),
+    "NETWORK_DORK_FORECAST_HISTORY_BUCKETS": ("forecast", "history_buckets"),
+    "NETWORK_DORK_FORECAST_HORIZON_BUCKETS": ("forecast", "horizon_buckets"),
+    "NETWORK_DORK_FORECAST_PERIOD_BUCKETS": ("forecast", "period_buckets"),
 }
 
 

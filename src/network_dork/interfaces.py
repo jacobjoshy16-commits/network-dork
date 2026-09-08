@@ -13,7 +13,9 @@ from network_dork.models import (
     AlertContext,
     AuditEvent,
     FailureRecord,
+    Forecast,
     InvestigationReport,
+    TimeSeries,
 )
 
 class AlertSource(Protocol):
@@ -21,6 +23,32 @@ class AlertSource(Protocol):
 
 class ContextProvider(Protocol):
     def gather(self, alert: Alert) -> AlertContext: ...
+
+class TimeSeriesProvider(Protocol):
+    """Bucket existing telemetry into a regular series for one entity.
+
+    Read-only, like every other telemetry path. Raises InsufficientHistory
+    when the entity has too little history to forecast against.
+    """
+
+    def series(
+        self,
+        *,
+        metric: str,
+        entity: str,
+        end: datetime,
+        buckets: int,
+        bucket_seconds: int,
+    ) -> TimeSeries: ...
+
+class Forecaster(Protocol):
+    """Predict the continuation of a series with an uncertainty band.
+
+    Implementations are pure predictors. They never decide that a deviation
+    is malicious, and they never emit alerts.
+    """
+
+    def forecast(self, series: TimeSeries, horizon: int) -> Forecast: ...
 
 class LLMClient(Protocol):
     def complete(self, system: str, user: str) -> str: ...

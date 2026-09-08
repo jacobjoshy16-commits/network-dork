@@ -30,13 +30,18 @@ class ZeekLogsContextProvider:
         prior_alerts_path: str | Path,
         audit: AuditLog,
         window_days: int = 7,
+        max_records: int = 15,
     ) -> None:
         if window_days < 1:
             raise ValueError("window_days must be positive")
+        if max_records < 1:
+            raise ValueError("max_records must be positive")
         self.directory = Path(directory)
         self.prior_alerts_path = Path(prior_alerts_path)
         self.audit = audit
         self.window_days = window_days
+        self.max_records = max_records
+        self._dropped: dict[str, int] = {}
 
     def _record(
         self,
@@ -144,12 +149,22 @@ class ZeekLogsContextProvider:
             )
             return [], reason
 
+        dropped = max(0, len(selected) - self.max_records)
+        if dropped:
+            # Keep the most recent evidence: it is nearest the alert.
+            selected = selected[-self.max_records:]
         self._record(
             alert,
             operation_id,
             "success",
-            {**parameters, "available": True, "result_count": len(selected)},
+            {
+                **parameters,
+                "available": True,
+                "result_count": len(selected),
+                "dropped_records": dropped,
+            },
         )
+        self._dropped[kind] = dropped
         return selected, None
 
     def _prior_count(
@@ -231,6 +246,7 @@ class ZeekLogsContextProvider:
         return count, None
 
     def gather(self, alert: Alert) -> AlertContext:
+        self._dropped: dict[str, int] = {}
         start = alert.timestamp - timedelta(days=self.window_days)
         ips = {
             str(ip) for ip in (alert.src_ip, alert.dst_ip) if ip is not None
@@ -309,4 +325,9 @@ class ZeekLogsContextProvider:
             auth=auth,
             prior_alert_count=prior_count,
             unavailable=unavailable,
+            truncated={
+                kind: count
+                for kind, count in self._dropped.items()
+                if count > 0
+            },
         )

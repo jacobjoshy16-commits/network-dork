@@ -130,11 +130,41 @@ def context_for(
     audit: JsonlAuditLog,
     resources: ExitStack,
 ):
-    return build_adapter(
+    inner = build_adapter(
         settings,
         "context",
         settings.runtime.context_adapter,
         {"audit": audit},
+        resources,
+    )
+    if settings.runtime.forecast_adapter is None:
+        return inner
+
+    # Enrichment decorates the configured provider; it never replaces it.
+    series_provider = build_adapter(
+        settings,
+        "timeseries",
+        settings.runtime.timeseries_adapter,
+        {"audit": audit},
+        resources,
+    )
+    forecaster = build_adapter(
+        settings,
+        "forecasters",
+        settings.runtime.forecaster_adapter,
+        {"audit": audit},
+        resources,
+    )
+    return build_adapter(
+        settings,
+        "forecast",
+        settings.runtime.forecast_adapter,
+        {
+            "audit": audit,
+            "inner_context": inner,
+            "series_provider": series_provider,
+            "forecaster": forecaster,
+        },
         resources,
     )
 
@@ -324,6 +354,7 @@ def demo_command(
             "directory": "${context.zeek_directory}",
             "prior_alerts_path": "${alerts.path}",
             "window_days": "${context.window_days}",
+            "max_records": "${context.max_records}",
             "audit": "${services.audit}",
         },
     )

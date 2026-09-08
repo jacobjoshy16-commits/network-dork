@@ -6,6 +6,7 @@ output. They contain no detection or remediation logic.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from pydantic import (
@@ -49,7 +50,7 @@ Control = Annotated[
 ]
 
 Confidence = Literal["low", "medium", "high"]
-EvidenceKind = Literal["flows", "dns", "auth", "prior_alerts"]
+EvidenceKind = Literal["flows", "dns", "auth", "prior_alerts", "forecast"]
 
 class DataModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -79,6 +80,40 @@ class EvidenceRecord(DataModel):
     timestamp: AwareDatetime
     fields: dict[str, Any]
 
+class TimeSeries(DataModel):
+    """A regularly bucketed metric for one entity.
+
+    Event logs are irregular; forecasting needs evenly spaced observations,
+    so telemetry is bucketed before it reaches a forecaster.
+    """
+
+    metric: NonEmpty
+    entity: NonEmpty
+    bucket_seconds: int = Field(ge=1, le=86400)
+    start: AwareDatetime
+    values: list[float] = Field(min_length=1)
+
+    def timestamp_at(self, index: int) -> datetime:
+        return self.start + timedelta(seconds=self.bucket_seconds * index)
+
+class Forecast(DataModel):
+    """A predicted continuation of a series, with an uncertainty band."""
+
+    model: NonEmpty
+    model_digest: str | None
+    median: list[float] = Field(min_length=1)
+    lower: list[float] = Field(min_length=1)
+    upper: list[float] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def aligned_bands(self) -> "Forecast":
+        if not len(self.median) == len(self.lower) == len(self.upper):
+            raise ValueError("Forecast band lengths must match the median")
+        for low, high in zip(self.lower, self.upper):
+            if low > high:
+                raise ValueError("Forecast lower bound exceeds upper bound")
+        return self
+
 class AlertContext(DataModel):
     alert: Alert
     window_start: AwareDatetime
@@ -86,9 +121,16 @@ class AlertContext(DataModel):
     flows: list[EvidenceRecord]
     dns: list[EvidenceRecord]
     auth: list[EvidenceRecord]
+    # Forecast-versus-actual observations for the pre-alert window. These are
+    # statistical observations about volume, never detections.
+    forecast: list[EvidenceRecord] = Field(default_factory=list)
     # None means unavailable; zero means queried and no matches.
     prior_alert_count: int | None = Field(ge=0)
     unavailable: dict[EvidenceKind, NonEmpty]
+    # Records dropped to keep the prompt inside its budget, per kind. The
+    # model is told what it is not seeing rather than left to assume it has
+    # the whole picture.
+    truncated: dict[EvidenceKind, int] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def consistent_window_and_kinds(self) -> "AlertContext":
@@ -96,7 +138,7 @@ class AlertContext(DataModel):
             raise ValueError("Context window is reversed")
         if self.window_end > self.alert.timestamp:
             raise ValueError("Context must not include post-alert time")
-        for kind in ("flows", "dns", "auth"):
+        for kind in ("flows", "dns", "auth", "forecast"):
             records = getattr(self, kind)
             if kind in self.unavailable and records:
                 raise ValueError(f"{kind} cannot be both populated and unavailable")

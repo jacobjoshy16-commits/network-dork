@@ -170,7 +170,12 @@ class InvestigationPipeline:
             raise ValueError("Model returned the wrong report timestamp")
 
         allowed = {f"alert:{alert.alert_id}"}
-        for group in (context.flows, context.dns, context.auth):
+        for group in (
+            context.flows,
+            context.dns,
+            context.auth,
+            context.forecast,
+        ):
             allowed.update(record.evidence_id for record in group)
         if context.prior_alert_count is not None:
             allowed.add("prior_alert_count")

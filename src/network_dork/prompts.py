@@ -25,6 +25,14 @@ Use a MITRE ATT&CK technique ID and a NIST SP 800-53 control ID only when
 reasonably confident; otherwise produce null for those fields.
 Benign activity can resemble malicious activity; do not assume malice.
 
+forecast evidence compares observed volume against a predicted range. It
+is a statistical observation, not a detection and not proof of malice.
+Traffic outside a predicted range is often benign: backups, patching,
+onboarding, and scheduled jobs all deviate. Never raise confidence on a
+forecast deviation alone, and never describe it as something a model
+detected or flagged. Corroborate it with the other evidence or say plainly
+that it stands alone.
+
 suggested_next_step must recommend evidence review by a human analyst,
 not claim an action was executed. Do not recommend automatic blocking,
 isolation, firewall changes, or configuration changes.
@@ -47,7 +55,12 @@ class InvestigationPrompt:
 
     def render(self, context: AlertContext) -> tuple[str, str]:
         evidence_ids = [f"alert:{context.alert.alert_id}"]
-        for group in (context.flows, context.dns, context.auth):
+        for group in (
+            context.flows,
+            context.dns,
+            context.auth,
+            context.forecast,
+        ):
             evidence_ids.extend(record.evidence_id for record in group)
         if context.prior_alert_count is not None:
             evidence_ids.append("prior_alert_count")

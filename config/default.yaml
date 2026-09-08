@@ -4,6 +4,7 @@ alerts:
 context:
   zeek_directory: fixtures/zeek
   window_days: 7
+  max_records: 15
 
 llm:
   base_url: http://127.0.0.1:11434
@@ -77,6 +78,7 @@ adapters:
         directory: "${context.zeek_directory}"
         prior_alerts_path: "${alerts.path}"
         window_days: "${context.window_days}"
+        max_records: "${context.max_records}"
         audit: "${services.audit}"
     opensearch:
       class_path: network_dork.adapters.context.opensearch:OpenSearchContextProvider
@@ -130,3 +132,36 @@ adapters:
         audit: "${services.audit}"
         timeout_seconds: "${opensearch.timeout_seconds}"
         max_response_bytes: "${opensearch.max_response_bytes}"
+
+  timeseries:
+    zeek_buckets:
+      class_path: network_dork.adapters.timeseries.zeek_buckets:ZeekBucketTimeSeriesProvider
+      options:
+        directory: "${context.zeek_directory}"
+        min_observations: "${forecast.min_observations}"
+        min_span_fraction: "${forecast.min_span_fraction}"
+
+  forecasters:
+    baseline:
+      class_path: network_dork.anomaly:SeasonalNaiveForecaster
+      options:
+        period_buckets: "${forecast.period_buckets}"
+    timesfm:
+      class_path: network_dork.adapters.forecast.timesfm_http:TimesFMForecaster
+      options:
+        base_url: "${forecast.base_url}"
+        timeout_seconds: "${forecast.timeout_seconds}"
+        max_response_bytes: "${forecast.max_response_bytes}"
+
+  forecast:
+    enrichment:
+      class_path: network_dork.adapters.context.forecast:ForecastEnrichingContextProvider
+      options:
+        inner: "${services.inner_context}"
+        series_provider: "${services.series_provider}"
+        forecaster: "${services.forecaster}"
+        audit: "${services.audit}"
+        bucket_seconds: "${forecast.bucket_seconds}"
+        history_buckets: "${forecast.history_buckets}"
+        horizon_buckets: "${forecast.horizon_buckets}"
+        max_evidence: "${forecast.max_evidence}"

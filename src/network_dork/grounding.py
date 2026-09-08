@@ -100,7 +100,12 @@ def _known_entities(context: AlertContext) -> tuple[set[str], set[str]]:
     blobs.append(alert.title)
     blobs.append(alert.description)
     blobs.extend(_strings(alert.original))
-    for group in (context.flows, context.dns, context.auth):
+    for group in (
+        context.flows,
+        context.dns,
+        context.auth,
+        context.forecast,
+    ):
         for record in group:
             blobs.extend(_strings(record.fields))
             blobs.append(record.source)
@@ -169,7 +174,8 @@ def check(report: InvestigationReport, context: AlertContext) -> list[str]:
             "by a human analyst"
         )
 
-    if len(context.unavailable) == 4 and report.confidence != "low":
+    kinds = {"flows", "dns", "auth", "prior_alerts"}
+    if kinds.issubset(context.unavailable) and report.confidence != "low":
         violations.append(
             f"confidence {report.confidence!r} is unsupportable: no "
             "supporting telemetry was available"
