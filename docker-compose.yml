@@ -4,8 +4,15 @@ services:
       context: .
       dockerfile: Dockerfile
     working_dir: /workspace
+    # Telemetry and code are read-only; only var/ is writable. The container
+    # cannot modify the logs it investigates even if the application tried.
     volumes:
-      - .:/workspace
+      - .:/workspace:ro
+      - ./var:/workspace/var
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
       NETWORK_DORK_CONFIG: /workspace/config/default.yaml
       NETWORK_DORK_OLLAMA_BASE_URL: ${NETWORK_DORK_OLLAMA_BASE_URL:-http://host.docker.internal:11434}

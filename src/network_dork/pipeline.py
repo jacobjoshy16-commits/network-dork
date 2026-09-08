@@ -53,6 +53,7 @@ class InvestigationPipeline:
         audit: AuditLog | None = None,
         grounding: GroundingCheck | None = None,
         model_digest: str | None = None,
+        system_prompt_digest: str | None = None,
         record_prompt_bodies: bool = False,
         max_attempts: int = 3,
         lease_seconds: int = 600,
@@ -74,6 +75,7 @@ class InvestigationPipeline:
         self.audit = audit
         self.grounding = grounding
         self.model_digest = model_digest
+        self.system_prompt_digest = system_prompt_digest
         self.record_prompt_bodies = record_prompt_bodies
         self.max_attempts = max_attempts
         self.lease_seconds = lease_seconds
@@ -104,6 +106,8 @@ class InvestigationPipeline:
                 parameters={
                     "model_version": self.model_version,
                     "model_digest": self.model_digest,
+                    # Which instructions produced this, not just which model.
+                    "system_prompt_sha256": self.system_prompt_digest,
                     **parameters,
                 },
             )

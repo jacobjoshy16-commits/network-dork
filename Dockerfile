@@ -13,10 +13,18 @@ RUN apt-get update \
 
 RUN python -m pip install --no-cache-dir uv==0.12.10
 
+# The investigator never needs root. Running as an unprivileged user is the
+# deployment half of the read-only posture the README describes: application
+# code should not be the only thing preventing a write.
+RUN useradd --create-home --uid 10001 network-dork
+
 COPY pyproject.toml uv.lock README.md LICENSE CONTRIBUTING.md ./
 COPY src ./src
 RUN uv sync --frozen
 
 ENV PATH="/opt/network-dork/.venv/bin:${PATH}"
+RUN chown -R network-dork:network-dork /opt/network-dork
+
+USER network-dork
 WORKDIR /workspace
 CMD ["sh", "-lc", "tail -f /dev/null"]

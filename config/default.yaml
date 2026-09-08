@@ -28,6 +28,14 @@ opensearch:
   max_hits: 500
   max_response_bytes: 1048576
 
+agent:
+  # Identity only. The rules that make this an investigator rather than an
+  # actor are fixed in code; see src/network_dork/prompts.py.
+  name: network-dork
+  role: SOC analyst assistant
+  deployment: ""
+  additional_guidance: ""
+
 audit:
   record_prompt_bodies: false
 

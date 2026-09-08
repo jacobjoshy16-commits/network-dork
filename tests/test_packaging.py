@@ -16,9 +16,22 @@ def test_docker_compose_uses_host_gateway_for_ollama():
     compose = yaml.safe_load(Path("docker-compose.yml").read_text())
     service = compose["services"]["network-dork"]
     assert service["working_dir"] == "/workspace"
-    assert ".:/workspace" in service["volumes"]
     assert "host.docker.internal:host-gateway" in service["extra_hosts"]
     assert service["environment"]["NETWORK_DORK_CONFIG"] == "/workspace/config/default.yaml"
+
+
+def test_docker_compose_mounts_telemetry_read_only():
+    """Application code must not be the only thing preventing a write.
+
+    The repository, including the logs under investigation, is mounted
+    read-only; only var/ is writable, and that is where outcomes go.
+    """
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text())
+    service = compose["services"]["network-dork"]
+    assert ".:/workspace:ro" in service["volumes"]
+    assert "./var:/workspace/var" in service["volumes"]
+    assert service["cap_drop"] == ["ALL"]
+    assert "no-new-privileges:true" in service["security_opt"]
 
 
 def test_dockerfile_installs_uv_and_project_environment():
@@ -26,6 +39,14 @@ def test_dockerfile_installs_uv_and_project_environment():
     assert "uv==0.12.10" in content
     assert "UV_PROJECT_ENVIRONMENT=/opt/network-dork/.venv" in content
     assert "CMD [\"sh\", \"-lc\", \"tail -f /dev/null\"]" in content
+
+
+def test_containers_do_not_run_as_root():
+    """Both images drop privileges; the investigator never needs root."""
+    for path in (Path("Dockerfile"), Path("services/timesfm/Dockerfile")):
+        content = path.read_text()
+        assert "USER " in content, f"{path} runs as root"
+        assert "useradd" in content, f"{path} creates no unprivileged user"
 
 
 def test_ci_workflow_runs_tests_and_fake_smoke():

@@ -103,6 +103,26 @@ class OpenSearchSettings(SettingsModel):
     max_response_bytes: int = Field(default=1048576, ge=1024, le=8388608)
 
 
+class AgentSettings(SettingsModel):
+    """What this agent is, as told to the model and shown to operators.
+
+    Identity is a deployment fact: an analyst should be able to tell whether
+    a report came from the enclave's investigator or a laboratory copy. The
+    core rules -- investigates rather than detects, cannot act, treats
+    evidence as untrusted -- are not settable here on purpose. A deployment
+    able to edit them could turn the investigator into something else while
+    the audit trail still said network-dork.
+    """
+
+    name: str = Field(default="network-dork", min_length=1, max_length=128)
+    role: str = Field(default="SOC analyst assistant", min_length=1, max_length=256)
+    # Free text describing where this instance runs, e.g. an enclave name.
+    deployment: str = Field(default="", max_length=512)
+    # Local conventions only. Appended after the fixed rules and framed to the
+    # model as unable to relax them.
+    additional_guidance: str = Field(default="", max_length=4000)
+
+
 class AuditSettings(SettingsModel):
     # Prompts and model responses embed telemetry. Full-body capture is a
     # deliberate deployment choice, not the default.
@@ -157,6 +177,7 @@ class Settings(SettingsModel):
     forecast: ForecastSettings = Field(default_factory=ForecastSettings)
     storage: StorageSettings = Field(default_factory=StorageSettings)
     audit: AuditSettings = Field(default_factory=AuditSettings)
+    agent: AgentSettings = Field(default_factory=AgentSettings)
     credentials: Credentials = Field(default_factory=Credentials)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     adapters: dict[str, dict[str, str | AdapterDefinition]] = Field(
@@ -193,6 +214,10 @@ ENV_PATHS = {
         "opensearch",
         "max_response_bytes",
     ),
+    "NETWORK_DORK_AGENT_NAME": ("agent", "name"),
+    "NETWORK_DORK_AGENT_ROLE": ("agent", "role"),
+    "NETWORK_DORK_AGENT_DEPLOYMENT": ("agent", "deployment"),
+    "NETWORK_DORK_AGENT_GUIDANCE": ("agent", "additional_guidance"),
     "NETWORK_DORK_AUDIT_RECORD_PROMPT_BODIES": (
         "audit",
         "record_prompt_bodies",

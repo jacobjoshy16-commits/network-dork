@@ -4,11 +4,16 @@ Network-dork is a local AI assistant for security teams who already have alerts 
 
 ## Verification snapshot
 
-- 153 automated tests passing.
-- Added phase 6 and 7 coverage for source-format alert adapters, OpenSearch security bootstrapping, packaging, and end-to-end demo flow.
-- Verified end-to-end fixture processing with the fake client and with a local HTTP Ollama-compatible test server.
-- `python -m network_dork context --alert-id syn-001` returns real fixture context.
-- `python -m network_dork run --fake` processes all 12 fixture alerts into reports.
+- 256 automated tests passing.
+- Forecast enrichment finds all three campaigns in the evaluation corpus at
+  precision 1.00 with zero benign windows flagged (`docs/evaluation.md`).
+- `python -m network_dork run --fake` processes all 12 fixture alerts.
+- `python -m network_dork eval` scores forecasters against labelled data.
+- `docs/testing.md` is a step-by-step guide to verifying all of this
+  yourself; every command in it was run.
+
+New readers should start with **`docs/architecture.md`**, which explains the
+whole engine and why each part exists.
 
 ## What it does
 
@@ -16,11 +21,34 @@ Given an existing alert, network-dork can:
 
 1. Read the alert from a normalized file source, Suricata EVE, Zeek notice logs, or OpenSearch.
 2. Gather supporting context such as recent flows, DNS activity, authentication events, and prior alert count.
-3. Build a constrained prompt for a local Ollama model.
-4. Validate the model response against a strict report schema.
-5. Persist either a complete investigation report or an explicit failure record.
-6. Audit every context query and every persistence attempt.
-7. Preserve restart-safe processing state so interrupted runs can recover safely.
+3. Optionally add forecast evidence: what this host's traffic normally looks
+   like against what it actually did before the alert fired.
+4. Build a constrained prompt for a local Ollama model.
+5. Validate the model response against a strict report schema.
+6. Check the report's prose against the supplied evidence, rejecting
+   fabricated entities, claimed actions, and unsupportable confidence.
+7. Persist either a complete investigation report or an explicit failure record.
+8. Audit every context query, every model call, and every persistence attempt.
+9. Preserve restart-safe processing state so interrupted runs can recover safely.
+
+## What the agent is
+
+Identity is configurable; the constraints are not.
+
+```sh
+python -m network_dork agent --prompt      # exactly what the model is told
+```
+
+| Setting | Configurable | Purpose |
+|---|---|---|
+| `agent.name`, `agent.role` | yes | Distinguish an enclave instance from a lab copy |
+| `agent.deployment` | yes | Free text describing where this instance runs |
+| `agent.additional_guidance` | yes | Local conventions, capped at 4000 characters |
+| Investigates rather than detects; cannot act; evidence is untrusted | **no** | Fixed in `prompts.py` |
+
+The SHA-256 of the resolved prompt is recorded in every audit event, so a
+report is attributable to specific instructions and not merely to a model
+name.
 
 ## Security boundaries
 
@@ -28,7 +56,14 @@ Given an existing alert, network-dork can:
 - **Reports use a separate credential:** only the report sink should be able to create or update analyst outcomes.
 - **No response actions exist:** there are no firewall, isolation, blocking, or configuration-change hooks.
 - **Runtime stays local:** the Ollama and OpenSearch clients reject public destinations, disable DNS resolution, ignore proxy variables, and refuse redirects.
-- **Audit is explicit:** query and write operations record attempt/success/error audit events with timestamps and parameters.
+- **Audit is explicit:** every telemetry query, model call, and write records
+  attempt/success/error events with timestamps, parameters, prompt and
+  response digests, and the identity of the process that produced them.
+- **Reports are checked, not trusted:** prose naming entities absent from the
+  evidence, claiming an action was taken, or expressing confidence the
+  context cannot support is rejected and retried.
+- **Enrichment never detects:** forecast evidence annotates an existing
+  alert. It creates no alerts, so alert volume is unchanged.
 
 ## Quickstart
 
@@ -99,13 +134,36 @@ NETWORK_DORK_MODEL=qwen2.5:7b-instruct make demo
 
 ```text
 AlertSource
-  -> ContextProvider
-  -> PromptRenderer
+  -> ProcessedAlertStore.claim   (lease; no duplicate work)
+  -> ContextProvider             (+ forecast enrichment, optional)
+  -> PromptRenderer              (identity + fixed rules + evidence)
   -> LLMClient (Ollama only)
   -> schema validation
+  -> grounding checks            (entities, action claims, confidence)
   -> ReportSink / FailureStore
-  -> AuditLog + ProcessedAlertStore
+  -> AuditLog + ProcessedAlertStore.finish
 ```
+
+See `docs/architecture.md` for what each stage does and why.
+
+### Forecast enrichment (optional, off by default)
+
+```sh
+NETWORK_DORK_FORECAST_ADAPTER=enrichment python -m network_dork run
+```
+
+Bucketizes telemetry into regular series, forecasts the pre-alert window from
+the host's own history, and reports where observation left the predicted
+range. Four metrics: connection count, bytes out, distinct destinations, and
+connection regularity.
+
+Two forecasters implement one interface: `baseline` (seasonal-naive, pure
+Python, the default) and `timesfm` (a sidecar container). The baseline is the
+default because it wins on the evaluation corpus; `make eval` compares them.
+
+TimesFM weights up to 2.5 are Apache-2.0. The 3.x weights are licensed for
+non-commercial use and are refused by the staging script, the sidecar, and
+the client.
 
 ### Default local components
 
@@ -227,6 +285,15 @@ python scripts/bootstrap_opensearch_security.py \
 ```
 
 The script also verifies that the telemetry credential cannot write to the report index.
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| `docs/architecture.md` | How the engine works, end to end |
+| `docs/evaluation.md` | Whether the forecaster works, measured |
+| `docs/testing.md` | Step-by-step local verification |
+| `docs/open-items.md` | Known gaps, stated plainly |
 
 ## Repo layout
 

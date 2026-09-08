@@ -22,7 +22,12 @@ from network_dork.config import AdapterDefinition, Settings, load_config
 from network_dork.grounding import check as grounding_check
 from network_dork.models import FailureRecord
 from network_dork.pipeline import InvestigationPipeline
-from network_dork.prompts import InvestigationPrompt, SYSTEM_PROMPT
+from network_dork.prompts import (
+    AgentProfile,
+    InvestigationPrompt,
+    render_system_prompt,
+    system_prompt_digest,
+)
 from network_dork.state import SQLiteState
 
 app = typer.Typer(
@@ -168,6 +173,15 @@ def context_for(
         resources,
     )
 
+def agent_profile(settings: Settings) -> AgentProfile:
+    return AgentProfile(
+        name=settings.agent.name,
+        role=settings.agent.role,
+        deployment=settings.agent.deployment,
+        additional_guidance=settings.agent.additional_guidance,
+    )
+
+
 def wire_pipeline(
     settings: Settings,
     resources: ExitStack,
@@ -216,6 +230,7 @@ def wire_pipeline(
         except Exception:
             model_digest = None
 
+    profile = agent_profile(settings)
     pipeline = InvestigationPipeline(
         source=source,
         context=context,
@@ -224,11 +239,12 @@ def wire_pipeline(
         failures=sink,
         outcomes=sink,
         state=SQLiteState(settings.storage.state_path),
-        prompts=InvestigationPrompt(model_version),
+        prompts=InvestigationPrompt(model_version, agent=profile),
         model_version=model_version,
         audit=audit,
         grounding=grounding_check,
         model_digest=model_digest,
+        system_prompt_digest=system_prompt_digest(profile),
         record_prompt_bodies=settings.audit.record_prompt_bodies,
         max_attempts=settings.llm.max_attempts,
         lease_seconds=max(
@@ -272,6 +288,39 @@ def adapters(
             typer.echo(
                 f"{kind}\t{name}\t{definition.class_path}"
             )
+
+@app.command("agent")
+def agent_command(
+    config: Annotated[Path | None, typer.Option("--config")] = None,
+    show_prompt: Annotated[
+        bool,
+        typer.Option("--prompt", help="Print the full resolved system prompt."),
+    ] = False,
+) -> None:
+    """Show what this agent is configured to be.
+
+    Identity and local guidance are configurable; the rules that make this an
+    investigator rather than an actor are fixed in code. Both are shown so an
+    operator can see exactly what the model is told.
+    """
+    settings = load_config(config)
+    profile = agent_profile(settings)
+    typer.echo(f"name:        {profile.name}")
+    typer.echo(f"role:        {profile.role}")
+    typer.echo(f"deployment:  {profile.deployment or '(unset)'}")
+    typer.echo(
+        f"guidance:    {profile.additional_guidance or '(none)'}"
+    )
+    typer.echo(f"prompt sha256: {system_prompt_digest(profile)}")
+    typer.echo(
+        "\nFixed in code and not settable: investigates rather than detects, "
+        "cannot act, treats supplied evidence as untrusted.",
+        err=True,
+    )
+    if show_prompt:
+        typer.echo("\n--- resolved system prompt ---")
+        typer.echo(render_system_prompt(profile))
+
 
 @app.command("context")
 def show_context(
@@ -516,9 +565,8 @@ def demo_command(
         "synthetic_corpus": True,
         "fake_model": False,
         "llm": settings.llm.model_dump(),
-        "system_prompt_sha256": hashlib.sha256(
-            SYSTEM_PROMPT.encode()
-        ).hexdigest(),
+        "agent": settings.agent.model_dump(),
+        "system_prompt_sha256": system_prompt_digest(agent_profile(settings)),
         "fixtures_sha256": {
             str(path): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in fixture_paths
