@@ -8,6 +8,7 @@ import hashlib
 import importlib
 import json
 import math
+import sqlite3
 import time
 from pathlib import Path
 import sys
@@ -745,6 +746,51 @@ def show_context(
             settings, audit, resources
         ).gather(matches[0])
         typer.echo(context.model_dump_json(indent=2))
+
+@app.command("eval-reports")
+def eval_reports_command(
+    runs: Annotated[
+        list[Path],
+        typer.Argument(
+            help="Run directories from `demo`, or reports.sqlite3 paths.",
+        ),
+    ],
+    labels_path: Annotated[
+        Path,
+        typer.Option("--labels", help="Ground-truth labels to score against."),
+    ] = Path("fixtures/ground_truth.yaml"),
+) -> None:
+    """Score model-written reports against the labelled fixtures.
+
+    `eval` answers whether the forecaster works. This answers whether the
+    model does, which is what makes "would a bigger model be better" a
+    measurement rather than an opinion. Point it at two demo runs made with
+    different models and compare the columns.
+    """
+    from network_dork.report_eval import (
+        compare,
+        load_labels,
+        render_score,
+        score_run,
+    )
+
+    labels = load_labels(labels_path)
+    scores = []
+    for run in runs:
+        try:
+            score = score_run(run, labels)
+        except (FileNotFoundError, OSError, sqlite3.Error) as exc:
+            typer.echo(f"{run}: unreadable ({exc})", err=True)
+            continue
+        scores.append(score)
+        typer.echo(render_score(score))
+        typer.echo("")
+
+    if not scores:
+        raise typer.Exit(code=1)
+    if len(scores) > 1:
+        typer.echo(compare(scores))
+
 
 @app.command("eval")
 def eval_command(

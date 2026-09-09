@@ -171,8 +171,38 @@ you will see a `FailureRecord` instead of a report — that is the grounding
 check doing its job, and `errors` will say exactly what it rejected.
 
 **If a report is rejected repeatedly:** that is informative, not a bug.
-`qwen2.5:3b-instruct` is small. Try `NETWORK_DORK_MODEL=qwen2.5:7b-instruct
-make demo-local` and compare.
+`qwen2.5:3b-instruct` is small. Step 7a turns that impression into a number.
+
+---
+
+## 7a. Score the reports, and compare two models
+
+`eval` scores the forecaster. This scores the model that writes the reports.
+
+```sh
+uv run python -m network_dork eval-reports var/demo/*
+```
+
+**Expect:** per-run counts of usable reports, evidence use, MITRE and NIST
+precision, and high-confidence verdicts on alerts the labels call benign.
+
+To decide whether a larger model is worth its RAM, run the corpus twice:
+
+```sh
+NETWORK_DORK_MODEL=qwen2.5:3b-instruct uv run python -m network_dork demo
+NETWORK_DORK_MODEL=qwen2.5:7b-instruct \
+  NETWORK_DORK_TIMEOUT_SECONDS=600 uv run python -m network_dork demo
+make eval-reports
+```
+
+A larger model earns its cost by raising `usable` and `evidence` without
+raising `benign hi` — high confidence on benign traffic is what teaches an
+analyst to stop reading the reports. Twelve alerts is a small sample; treat
+a one-report difference as noise.
+
+Labels are read only here. They never enter a prompt —
+`tests/test_fixtures.py` asserts that separation, and `demo` sets its
+fixture paths without touching `fixtures/ground_truth.yaml`.
 
 ---
 

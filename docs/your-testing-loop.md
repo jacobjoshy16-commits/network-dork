@@ -49,12 +49,19 @@ Read stage 7 and ask three questions:
 
 ```sh
 python -m network_dork eval          # forecaster accuracy, on labelled data
+make eval-reports                    # report quality, on labelled data
 make test                            # nothing else broke
 ```
 
-`eval` is the honest scorekeeper: it reports whether each attack was found
-*and* whether any benign window was flagged. A change that finds more attacks
-while flagging benign windows is a bad change.
+`eval` is the honest scorekeeper for the forecaster: it reports whether each
+attack was found *and* whether any benign window was flagged. A change that
+finds more attacks while flagging benign windows is a bad change.
+
+`eval-reports` is the same idea for the model that writes the reports. It
+scores a `demo` run against the labels and answers the question step 3 asks
+you to judge by eye, across the whole corpus rather than one alert. It is
+also how you settle whether a bigger model is worth its RAM — run `demo`
+under each and compare the rows. See `docs/vm-setup.md` §6.
 
 ## What to change first
 
@@ -64,7 +71,8 @@ while flagging benign windows is a bad change.
 | Real anomalies missed | `forecast.min_score_by_metric` down, then re-run `eval` |
 | "No metric had enough history" | Collect longer, or lower `forecast.min_observations` |
 | Reports too vague | `context.max_records` up, and `llm.num_ctx` with it |
-| Reports rejected repeatedly | Read `errors` — the grounding rule it broke is named |
+| Reports rejected repeatedly | Read `errors` — the grounding rule it broke is named; if it persists, `make eval-reports` says how often |
+| Reports confident about benign traffic | `make eval-reports` counts it; it is the failure that loses an analyst |
 | Nothing forecast at all | `python -m network_dork readiness` |
 
 After **any** change, run `python -m network_dork eval`. If false positives

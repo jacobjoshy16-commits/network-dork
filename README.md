@@ -84,6 +84,18 @@ ollama pull qwen2.5:3b-instruct
 make demo-local
 ```
 
+Score what the model wrote against the labelled fixtures:
+
+```sh
+make eval-reports
+```
+
+Reports usable-output rate, evidence use, MITRE and NIST precision, and
+high confidence on benign alerts. Run `demo` under two models and it names
+each row by model, so choosing between `qwen2.5:3b-instruct` and
+`qwen2.5:7b-instruct` is a measurement rather than a preference. See
+`docs/vm-setup.md` §6.
+
 ### Docker path
 
 Requirements:
@@ -288,25 +300,36 @@ The script also verifies that the telemetry credential cannot write to the repor
 
 ```text
 config/default.yaml
+docs/
 fixtures/
-  alerts/
-  zeek/
+  alerts/            twelve alert fixtures
+  ground_truth.yaml  labels; never enters a prompt
+  timeseries/        deterministic forecast corpus
+  zeek/              flow, dns and auth evidence
   source_samples/
-scripts/bootstrap_opensearch_security.py
+scripts/
+  generate_timeseries_corpus.py
+  make_sample_network.py
+  stage_timesfm_weights.py
+  bootstrap_opensearch_security.py
+services/timesfm/     forecasting sidecar, kept out of the runtime
 src/network_dork/
-  __main__.py
-  audit.py
-  config.py
-  interfaces.py
-  models.py
-  pipeline.py
-  prompts.py
-  state.py
+  __main__.py         CLI and composition root
+  interfaces.py       the ports; pipeline.py imports nothing else
+  pipeline.py         orchestration
+  models.py           data contracts
+  config.py           settings and the endpoint allowlist
+  prompts.py          system prompt and agent profile
+  grounding.py        rejects ungrounded reports
+  audit.py            hash-chained audit log
+  state.py            leases and restart safety
+  anomaly.py          deviation scoring and the baseline forecaster
+  regularity.py       beaconing metric
+  evaluation.py       scores forecasters against the corpus
+  report_eval.py      scores model reports against the labels
+  render.py           human-readable output
   adapters/
-    alerts/
-    context/
-    llm/
-    sinks/
+    alerts/ context/ forecast/ llm/ sinks/ timeseries/
 tests/
 ```
 

@@ -100,6 +100,22 @@ They decide which hosts get forecast at all (currently: 100 observations
 spanning at least half the requested window). Nothing measured those values.
 `python -m network_dork readiness` shows their effect on your own telemetry.
 
+### TimesFM 3.0 is licence-blocked for this product
+
+TimesFM 3.0 (330M, native multivariate) would plausibly forecast these
+metrics better than 2.5. Its weights ship under
+`timesfm-non-commercial-license-v1.0`, which explicitly prohibits production
+deployment and third-party mirroring. Only 2.5 and earlier are Apache-2.0.
+
+For an HPE federal product that is a hard blocker, not a caveat, so the
+staging script, the sidecar, and the client all refuse a 3.x checkpoint by
+name rather than leaving it to a deployment to discover.
+
+**It is permitted for evaluation.** If 2.5 turns out not to beat the
+seasonal-naive baseline, comparing 3.0 internally is a legitimate way to
+learn whether a learned forecaster helps at all here — the result just
+cannot ship without a commercial licence or a hosted route.
+
 ### TimesFM has never been run
 
 The adapter, sidecar, weight staging, and licence guards exist and are
@@ -128,9 +144,16 @@ actions. They are tested in both directions, including cases that must
 telemetry). They will still miss phrasings and should be tuned against real
 model output rather than extended speculatively.
 
-### No report quality measurement against ground truth
+### Report quality is measurable but has never been measured
 
-`fixtures/ground_truth.yaml` carries MITRE and NIST labels for the twelve
-alert fixtures, and nothing scores model reports against them. The forecast
-evaluation exists; the equivalent for report content does not. It needs a
-real model run, so it could not be built in an environment without Ollama.
+`python -m network_dork eval-reports` scores a run's reports against
+`fixtures/ground_truth.yaml`: usable-output rate, evidence use, MITRE and
+NIST precision, and high confidence on benign alerts. The scoring is tested
+against scripted outcomes, so the arithmetic is verified.
+
+**No real model has been scored by it.** Every number it can print is
+currently hypothetical, because this repository has no Ollama. The 3B vs 7B
+question in `docs/vm-setup.md` §6 is written as a procedure, not a result.
+
+Twelve alerts is also a very small sample. It can tell you a model fails
+half the corpus; it cannot resolve a one-report difference.

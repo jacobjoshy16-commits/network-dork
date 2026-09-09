@@ -3,7 +3,7 @@ CONFIG ?= config/default.yaml
 COMPOSE ?= docker compose
 SERVICE ?= network-dork
 
-.PHONY: sync test adapters context run-fake demo-local up down demo ci-local corpus eval preflight timesfm-up timesfm-down
+.PHONY: sync test adapters context run-fake demo-local up down demo ci-local corpus eval eval-reports preflight timesfm-up timesfm-down
 
 sync:
 	$(UV) sync --extra dev
@@ -37,6 +37,9 @@ corpus: sync
 
 eval: sync
 	$(UV) run python -m network_dork eval --config "$(CONFIG)" --forecaster all
+
+eval-reports: sync
+	$(UV) run python -m network_dork eval-reports var/demo/*
 
 demo-local: sync
 	$(UV) run python -m network_dork demo --config "$(CONFIG)"
