@@ -31,3 +31,26 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     command: ["sh", "-lc", "tail -f /dev/null"]
+
+  # The forecaster. Separate container so torch and the HuggingFace stack stay
+  # out of the investigation runtime's image, dependency set and SBOM.
+  # Weights are staged beforehand with scripts/stage_timesfm_weights.py; the
+  # service never downloads at request time.
+  timesfm:
+    profiles: ["timesfm"]
+    build:
+      context: ./services/timesfm
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./models/timesfm-2.5-200m:/models/timesfm-2.5-200m:ro
+    environment:
+      NETWORK_DORK_TIMESFM_CHECKPOINT: /models/timesfm-2.5-200m
+      NETWORK_DORK_TIMESFM_HOST: 0.0.0.0
+      NETWORK_DORK_TIMESFM_MAX_CONTEXT: ${NETWORK_DORK_TIMESFM_MAX_CONTEXT:-8192}
+    # Loopback only: nothing outside this host reaches the forecaster.
+    ports:
+      - "127.0.0.1:11435:11435"

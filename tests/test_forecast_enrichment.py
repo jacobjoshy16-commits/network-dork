@@ -581,3 +581,47 @@ def test_a_negative_band_edge_is_hidden_from_the_analyst_not_from_scoring():
     rendered = render_forecast(context)
     assert "-0.4" not in rendered
     assert "0.0 to 0.4" in rendered
+
+
+def test_the_preflight_known_answer_series_is_actually_predictable():
+    """Guards the check that proves a forecaster works.
+
+    Preflight hands a forecaster four cycles of a periodic series and
+    requires the continuation within 25% of the amplitude. If the baseline
+    could not pass its own test, the check would be measuring nothing.
+    """
+    import math
+
+    period, cycles, horizon = 288, 4, 24
+    values = [
+        round(10 + 40 * math.sin(math.pi * (i % period) / period) ** 2, 3)
+        for i in range(period * cycles)
+    ]
+    expected = [
+        round(
+            10 + 40 * math.sin(math.pi * ((len(values) + i) % period) / period) ** 2,
+            3,
+        )
+        for i in range(horizon)
+    ]
+    series = TimeSeries(
+        metric="conn_count",
+        entity="preflight",
+        bucket_seconds=300,
+        start=ALERT_TIME - timedelta(seconds=300 * len(values)),
+        values=values,
+    )
+    prediction = SeasonalNaiveForecaster(period_buckets=period).forecast(
+        series, horizon
+    )
+    amplitude = max(expected) - min(expected)
+    error = sum(
+        abs(p - e) for p, e in zip(prediction.median, expected)
+    ) / horizon
+    assert error / amplitude < 0.25
+    assert all(
+        low <= median <= high
+        for low, median, high in zip(
+            prediction.lower, prediction.median, prediction.upper
+        )
+    )

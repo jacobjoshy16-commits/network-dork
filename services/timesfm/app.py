@@ -32,8 +32,10 @@ from typing import Any
 LOGGER = logging.getLogger("timesfm-sidecar")
 
 MAX_REQUEST_BYTES = 8 * 1024 * 1024
-MAX_HORIZON = 1024
-MAX_CONTEXT = 16384
+# Compile cost and memory scale with these, so they match what the caller
+# actually sends: history_buckets 4032 plus horizon_buckets 72 by default.
+MAX_HORIZON = int(os.environ.get("NETWORK_DORK_TIMESFM_MAX_HORIZON", "512"))
+MAX_CONTEXT = int(os.environ.get("NETWORK_DORK_TIMESFM_MAX_CONTEXT", "8192"))
 # TimesFM 3.x weights are non-commercial; refuse them rather than let a
 # deployment discover the licence problem in production.
 NON_COMMERCIAL = re.compile(r"timesfm[-_]?3(\.|$|[-_])", re.IGNORECASE)
@@ -79,6 +81,13 @@ class TimesFMModel:
             raise ModelUnavailable(
                 "The timesfm package is not installed in this container"
             ) from exc
+        try:
+            import torch
+
+            torch.set_float32_matmul_precision("high")
+        except ImportError:  # pragma: no cover - container-only path
+            pass
+
         LOGGER.info("loading checkpoint %s", self.checkpoint)
         self._model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
             self.checkpoint
@@ -89,6 +98,12 @@ class TimesFMModel:
                 max_horizon=MAX_HORIZON,
                 normalize_inputs=True,
                 use_continuous_quantile_head=True,
+                # Network metrics are counts and byte totals: never negative,
+                # and a band whose quantiles cross would produce a lower bound
+                # above its upper bound, which the Forecast model rejects.
+                infer_is_positive=True,
+                fix_quantile_crossing=True,
+                force_flip_invariance=True,
             )
         )
         return self._model
@@ -97,16 +112,24 @@ class TimesFMModel:
         self, values: list[float], horizon: int
     ) -> tuple[list[float], list[float], list[float]]:
         model = self._load()
-        point, quantile = model.forecast(
-            horizon=horizon, inputs=[values]
-        )
+        try:
+            import numpy
+
+            inputs = [numpy.asarray(values, dtype=numpy.float32)]
+        except ImportError:  # pragma: no cover - container-only path
+            inputs = [values]
+
+        point, quantile = model.forecast(horizon=horizon, inputs=inputs)
         median = [float(value) for value in point[0][:horizon]]
-        # The quantile head returns [batch, horizon, quantile]; fall back to
-        # the point forecast when a build ships without it.
+        # quantile is [batch, horizon, 10]: index 0 is the mean, then the
+        # 10th through 90th percentiles at indices 1 to 9. Index 1 and 9 are
+        # therefore the 10th and 90th, matching the band the scorer expects.
         try:
             lower = [float(quantile[0][step][1]) for step in range(horizon)]
             upper = [float(quantile[0][step][9]) for step in range(horizon)]
         except (IndexError, TypeError):
+            # A build without the quantile head: degrade to the point
+            # forecast rather than invent a band.
             lower = list(median)
             upper = list(median)
         return median, lower, upper

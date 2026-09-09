@@ -8,6 +8,7 @@ import hashlib
 import importlib
 import json
 import math
+import time
 from pathlib import Path
 import sys
 from typing import Annotated, Any
@@ -25,7 +26,7 @@ from network_dork.audit import (
 )
 from network_dork.config import AdapterDefinition, Settings, load_config
 from network_dork.grounding import check as grounding_check
-from network_dork.models import FailureRecord
+from network_dork.models import Alert, FailureRecord, TimeSeries
 from network_dork.pipeline import InvestigationPipeline
 from network_dork.render import (
     render_evidence,
@@ -309,6 +310,179 @@ def adapters(
             typer.echo(
                 f"{kind}\t{name}\t{definition.class_path}"
             )
+
+@app.command("preflight")
+def preflight_command(
+    config: Annotated[Path | None, typer.Option("--config")] = None,
+) -> None:
+    """Prove both models actually work, before trusting any output.
+
+    Reachability is not the question -- a service can answer and still be
+    useless. Each model is given a task with a known right answer: the
+    language model must return a report that satisfies the schema, and the
+    forecaster must continue a periodic series it has never seen.
+    """
+    settings = load_config(config)
+    failures = 0
+
+    def result(name: str, ok: bool, detail: str) -> None:
+        nonlocal failures
+        failures += not ok
+        typer.echo(f"  {'PASS' if ok else 'FAIL'}  {name:<28} {detail}")
+
+    typer.echo("\nLanguage model (Ollama)")
+    with ExitStack() as resources:
+        try:
+            llm = build_adapter(
+                settings, "llm", settings.runtime.llm_adapter, {}, resources
+            )
+        except Exception as exc:
+            result("client", False, f"{type(exc).__name__}: {exc}")
+            llm = None
+
+        if llm is not None:
+            try:
+                installed = llm.installed_model()
+                result(
+                    "model installed",
+                    True,
+                    f"{settings.llm.model} digest {installed['digest'][:16]}",
+                )
+            except Exception as exc:
+                result("model installed", False, f"{type(exc).__name__}: {exc}")
+                installed = None
+
+            if installed is not None:
+                # The real path: a schema-valid report, not merely a response.
+                from network_dork.adapters.context.null import (
+                    NullContextProvider,
+                )
+
+                probe = Alert(
+                    source="preflight",
+                    alert_id="preflight-001",
+                    timestamp=datetime.now(timezone.utc),
+                    title="Preflight check alert",
+                    description="Synthetic alert used to verify the model.",
+                    src_ip="10.0.0.1",
+                    dst_ip=None,
+                    host=None,
+                    domains=[],
+                    original={},
+                )
+                context = NullContextProvider().gather(probe)
+                prompts = InvestigationPrompt(
+                    settings.llm.model, agent=agent_profile(settings)
+                )
+                system, user = prompts.render(context)
+                started = time.monotonic()
+                try:
+                    raw = llm.complete(system, user)
+                    elapsed = time.monotonic() - started
+                except Exception as exc:
+                    result("completes a request", False, f"{type(exc).__name__}: {exc}")
+                    raw = None
+
+                if raw is not None:
+                    result("completes a request", True, f"{elapsed:.1f}s, {len(raw):,} chars")
+                    try:
+                        report = InvestigationPipeline._validate_response(
+                            raw, probe, context, settings.llm.model, user
+                        )
+                        result("returns a valid report", True, f"confidence {report.confidence}")
+                    except (ValueError, TypeError) as exc:
+                        result(
+                            "returns a valid report",
+                            False,
+                            f"{type(exc).__name__}: {str(exc)[:80]}",
+                        )
+                    else:
+                        violations = grounding_check(report, context)
+                        result(
+                            "report passes grounding",
+                            not violations,
+                            violations[0][:70] if violations else "no violations",
+                        )
+
+    typer.echo("\nForecaster")
+    with ExitStack() as resources:
+        try:
+            forecaster = build_adapter(
+                settings,
+                "forecasters",
+                settings.runtime.forecaster_adapter,
+                {},
+                resources,
+            )
+            result("client", True, settings.runtime.forecaster_adapter)
+        except Exception as exc:
+            result("client", False, f"{type(exc).__name__}: {exc}")
+            forecaster = None
+
+        if forecaster is not None:
+            # A known-answer test. The series repeats exactly, so a working
+            # forecaster continues it; a broken one cannot fake this.
+            period = 288
+            cycles = 4
+            values = [
+                round(10 + 40 * math.sin(math.pi * (index % period) / period) ** 2, 3)
+                for index in range(period * cycles)
+            ]
+            horizon = 24
+            series = TimeSeries(
+                metric="conn_count",
+                entity="preflight",
+                bucket_seconds=300,
+                start=datetime.now(timezone.utc)
+                - timedelta(seconds=300 * len(values)),
+                values=values,
+            )
+            expected = [
+                round(10 + 40 * math.sin(math.pi * ((len(values) + i) % period) / period) ** 2, 3)
+                for i in range(horizon)
+            ]
+            started = time.monotonic()
+            try:
+                prediction = forecaster.forecast(series, horizon)
+                elapsed = time.monotonic() - started
+            except Exception as exc:
+                result("produces a forecast", False, f"{type(exc).__name__}: {exc}")
+                prediction = None
+
+            if prediction is not None:
+                result(
+                    "produces a forecast",
+                    True,
+                    f"{elapsed:.1f}s, model {prediction.model}",
+                )
+                banded = all(
+                    low <= median <= high
+                    for low, median, high in zip(
+                        prediction.lower, prediction.median, prediction.upper
+                    )
+                )
+                result(
+                    "band brackets the median",
+                    banded,
+                    "ordered" if banded else "quantiles cross",
+                )
+                amplitude = max(expected) - min(expected)
+                error = sum(
+                    abs(p - e) for p, e in zip(prediction.median, expected)
+                ) / horizon
+                relative = error / amplitude if amplitude else 1.0
+                result(
+                    "continues a known series",
+                    relative < 0.25,
+                    f"mean error {error:.1f} = {relative:.0%} of amplitude",
+                )
+
+    typer.echo("")
+    if failures:
+        typer.echo(f"{failures} check(s) failed.", err=True)
+        raise typer.Exit(code=1)
+    typer.echo("Both models are working.")
+
 
 @app.command("trace")
 def trace_command(
