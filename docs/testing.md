@@ -17,11 +17,40 @@ git checkout arena/01a07424-network-dork
 ```
 
 You need **Python 3.11+** and **uv** (`curl -LsSf https://astral.sh/uv/install.sh | sh`).
-Ollama and Docker are only needed for steps 7 and 8.
+Ollama and Docker are only needed for steps 7 and 9.
 
 ```sh
 uv sync --extra dev
 ```
+
+### On macOS
+
+Everything through step 8 runs natively on Apple Silicon; nothing here is
+Linux-only.
+
+```sh
+brew install uv          # or the curl installer above
+brew install ollama      # step 7 only
+```
+
+Two things that will bite you otherwise:
+
+- **There is no bare `python` on a stock macOS.** Either prefix every
+  command with `uv run`, as this document does, or run
+  `source .venv/bin/activate` once per terminal and drop the prefix.
+- **GNU coreutils are not installed.** Use `shasum -a 256` where a Linux
+  guide says `sha256sum`, and `md5 -q` where it says `md5sum`.
+
+Ollama on Apple Silicon uses the GPU through Metal, so `qwen2.5:7b-instruct`
+is far more comfortable here than the CPU-only figures in `docs/vm-setup.md`
+suggest. 16 GB is enough for 7B at the shipped `num_ctx`.
+
+**Step 9 (TimesFM) is the one part that is awkward on a Mac.** The sidecar
+image installs a CPU Linux torch wheel, and whether that resolves under
+Docker Desktop on arm64 has not been tested. Step 9 is optional — the
+baseline forecaster is the default and finds all three corpus campaigns
+without it — so treat a build failure there as a known unknown rather than
+a broken checkout.
 
 ---
 
@@ -131,9 +160,9 @@ correct — it means no sidecar is running.
 The corpus is deterministic. Regenerating it must change nothing:
 
 ```sh
-md5sum fixtures/timeseries/corpus.json
+shasum -a 256 fixtures/timeseries/corpus.json
 uv run python scripts/generate_timeseries_corpus.py
-md5sum fixtures/timeseries/corpus.json   # identical
+shasum -a 256 fixtures/timeseries/corpus.json   # identical
 ```
 
 Read `docs/evaluation.md` for what these numbers mean and where they are

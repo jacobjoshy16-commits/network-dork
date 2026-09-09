@@ -2,6 +2,18 @@
 
 Four commands. Everything else in this repo exists to support them.
 
+## 0. Once per terminal
+
+```sh
+uv sync --extra dev
+source .venv/bin/activate
+```
+
+Every `python` below means the one in that virtualenv. On macOS a stock
+terminal has no bare `python` at all, so skipping this gives you
+`command not found` rather than anything informative. Prefix with
+`uv run` instead if you would rather not activate.
+
 ## 1. Build a network to test against
 
 ```sh
