@@ -263,6 +263,23 @@ Important knobs:
 - `NETWORK_DORK_TELEMETRY_USERNAME` / `NETWORK_DORK_TELEMETRY_PASSWORD`
 - `NETWORK_DORK_REPORT_USERNAME` / `NETWORK_DORK_REPORT_PASSWORD`
 
+### Seeing what is actually in effect
+
+Settings come from `config/default.yaml`, an optional override file, and
+around seventy environment variables layered on top, so no single file
+answers "why is it doing that":
+
+```sh
+python -m network_dork config --changed     # only what you have overridden
+python -m network_dork config --section llm # one section, with defaults
+python -m network_dork config-env           # the variable for every setting
+```
+
+`config` names the layer each value came from and validates the whole
+configuration as a side effect — if it prints, the settings load. Passwords
+are shown as `<set>`, never printed, so the output is safe to paste into a
+ticket.
+
 ## OpenSearch security bootstrap
 
 To create distinct read and write identities, use:

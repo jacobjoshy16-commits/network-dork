@@ -8,6 +8,8 @@ and without failing an investigation when the forecaster is unavailable.
 from datetime import datetime, timedelta, timezone
 import json
 import math
+from pathlib import Path
+from unittest import mock
 
 import httpx
 import pytest
@@ -211,6 +213,177 @@ def test_bucketizer_counts_distinct_destinations(tmp_path):
         bucket_seconds=BUCKET,
     )
     assert series.values == [2.0]
+
+
+def test_four_metrics_over_one_window_read_the_log_once(tmp_path):
+    """The enrichment path asks for four metrics per alert.
+
+    Scanning per metric made enrichment four times the cost of the context
+    it decorates. Counting opens is the honest way to hold that fixed: a
+    faster wall clock could come from anywhere.
+    """
+    rows = [
+        {
+            "ts": (ALERT_TIME - timedelta(minutes=14 - index)).isoformat(),
+            "id.orig_h": "10.77.0.1",
+            "id.resp_h": f"192.0.2.{index % 3}",
+            "orig_bytes": 100,
+        }
+        for index in range(12)
+    ]
+    log = tmp_path / "zeek" / "conn.log"
+    write_conn_log(log, rows)
+
+    provider = ZeekBucketTimeSeriesProvider(
+        tmp_path / "zeek", min_observations=1, min_span_fraction=0.01
+    )
+    opens = 0
+    original = Path.open
+
+    def counting_open(self, *args, **kwargs):
+        nonlocal opens
+        if self == log:
+            opens += 1
+        return original(self, *args, **kwargs)
+
+    with mock.patch.object(Path, "open", counting_open):
+        for metric in (
+            "conn_count",
+            "bytes_out",
+            "distinct_destinations",
+            "conn_regularity",
+        ):
+            provider.series(
+                metric=metric,
+                entity="10.77.0.1",
+                end=ALERT_TIME,
+                buckets=3,
+                bucket_seconds=BUCKET,
+            )
+
+    assert opens == 1
+
+
+def test_every_metric_survives_being_computed_in_one_pass(tmp_path):
+    """The values must not change because they now share a scan."""
+    rows = [
+        {
+            "ts": (ALERT_TIME - timedelta(minutes=14 - index)).isoformat(),
+            "id.orig_h": "10.77.0.1",
+            "id.resp_h": f"192.0.2.{index % 2}",
+            "orig_bytes": 50,
+        }
+        for index in range(10)
+    ]
+    write_conn_log(tmp_path / "zeek" / "conn.log", rows)
+    provider = ZeekBucketTimeSeriesProvider(
+        tmp_path / "zeek", min_observations=1, min_span_fraction=0.01
+    )
+
+    def values(metric):
+        return provider.series(
+            metric=metric,
+            entity="10.77.0.1",
+            end=ALERT_TIME,
+            buckets=3,
+            bucket_seconds=BUCKET,
+        ).values
+
+    assert sum(values("conn_count")) == 10.0
+    assert sum(values("bytes_out")) == 500.0
+    # Two destinations alternate, so any bucket holding traffic sees both.
+    assert max(values("distinct_destinations")) == 2.0
+    assert len(values("conn_regularity")) == 3
+
+
+def test_an_appended_log_is_rescanned_rather_than_served_from_cache(tmp_path):
+    """conn.log grows underneath a long-running batch.
+
+    A cache keyed on the path alone would answer the second alert with the
+    first alert's buckets, and nothing would report it.
+    """
+    log = tmp_path / "zeek" / "conn.log"
+
+    def row(minutes_ago):
+        return {
+            "ts": (ALERT_TIME - timedelta(minutes=minutes_ago)).isoformat(),
+            "id.orig_h": "10.77.0.1",
+            "id.resp_h": "192.0.2.1",
+            "orig_bytes": 100,
+        }
+
+    write_conn_log(log, [row(14), row(2)])
+    provider = ZeekBucketTimeSeriesProvider(
+        tmp_path / "zeek", min_observations=1, min_span_fraction=0.01
+    )
+
+    def total():
+        return sum(
+            provider.series(
+                metric="conn_count",
+                entity="10.77.0.1",
+                end=ALERT_TIME,
+                buckets=3,
+                bucket_seconds=BUCKET,
+            ).values
+        )
+
+    assert total() == 2.0
+
+    write_conn_log(log, [row(14), row(8), row(2)])
+
+    assert total() == 3.0
+
+
+def test_the_scan_cache_does_not_grow_without_bound(tmp_path):
+    """A long batch must not accumulate a scan per alert."""
+    rows = [
+        {
+            "ts": (ALERT_TIME - timedelta(minutes=14 - index)).isoformat(),
+            "id.orig_h": f"10.77.0.{index}",
+            "id.resp_h": "192.0.2.1",
+            "orig_bytes": 100,
+        }
+        for index in range(8)
+    ]
+    write_conn_log(tmp_path / "zeek" / "conn.log", rows)
+    provider = ZeekBucketTimeSeriesProvider(
+        tmp_path / "zeek",
+        min_observations=1,
+        min_span_fraction=0.01,
+        cached_scans=2,
+    )
+
+    for index in range(8):
+        try:
+            provider.series(
+                metric="conn_count",
+                entity=f"10.77.0.{index}",
+                end=ALERT_TIME,
+                buckets=3,
+                bucket_seconds=BUCKET,
+            )
+        except InsufficientHistory:
+            pass
+
+    assert len(provider._scans) <= 2
+
+
+def test_a_missing_log_still_reports_insufficient_history(tmp_path):
+    """The scan raises where the per-metric read used to; the message must
+    still say history, not a filesystem error."""
+    provider = ZeekBucketTimeSeriesProvider(
+        tmp_path / "zeek", min_observations=1, min_span_fraction=0.01
+    )
+
+    with pytest.raises(InsufficientHistory):
+        provider.series(
+            metric="conn_count",
+            entity="10.77.0.1",
+            end=ALERT_TIME,
+            buckets=3,
+            bucket_seconds=BUCKET,
+        )
 
 
 # --- enrichment boundary ----------------------------------------------------

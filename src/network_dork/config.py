@@ -347,6 +347,101 @@ def load_config(
     return Settings.model_validate(data)
 
 
+@dataclass(frozen=True)
+class Origin:
+    """One effective setting and the layer that last set it.
+
+    "Why is it doing that" is the most common configuration question, and
+    with a YAML file, an optional override, and seventy environment
+    variables layered on top, it is not answerable by reading any one of
+    them. This records the answer while the layers are being applied.
+    """
+
+    section: str
+    key: str
+    value: Any
+    source: str
+
+    @property
+    def from_default(self) -> bool:
+        return self.source == "default"
+
+    @property
+    def redacted(self) -> bool:
+        """Secrets are named but never printed."""
+        return "password" in self.key or "secret" in self.key
+
+
+def explain(
+    path: Path | None = None,
+    *,
+    defaults: Path = Path("config/default.yaml"),
+    environ: Mapping[str, str] | None = None,
+) -> tuple[Settings, list[Origin]]:
+    """Load settings and report where each one came from.
+
+    Deliberately replays the same layering as load_config rather than
+    inspecting the result: a provenance report derived from a different code
+    path would eventually disagree with the settings actually in use.
+    """
+    env = os.environ if environ is None else environ
+    sources: dict[tuple[str, str], str] = {}
+
+    def note(layer: dict[str, Any], label: str) -> None:
+        for section, values in layer.items():
+            if isinstance(values, dict):
+                for key in values:
+                    sources[(section, key)] = label
+
+    data = read_yaml(defaults)
+    # The shipped file *is* the default. Marking its values as overrides
+    # would flag every setting and drown the handful that actually changed.
+    note(data, "default")
+
+    override = path
+    if override is None and env.get("NETWORK_DORK_CONFIG"):
+        override = Path(env["NETWORK_DORK_CONFIG"])
+    if override is not None:
+        overlay = read_yaml(override)
+        data = merge(data, overlay)
+        note(overlay, str(override))
+
+    for variable, (section, key) in ENV_PATHS.items():
+        if variable in env and env[variable] != "":
+            existing = data.setdefault(section, {})
+            if not isinstance(existing, dict):
+                raise ValueError(f"{section} must be a mapping")
+            existing[key] = env[variable]
+            sources[(section, key)] = variable
+
+    settings = Settings.model_validate(data)
+
+    origins: list[Origin] = []
+    for section, values in settings.model_dump(mode="json").items():
+        # adapters is a wiring table, not a tunable setting: its shape is
+        # class paths and option templates, which `adapters` already prints.
+        if section == "adapters" or not isinstance(values, dict):
+            continue
+        for key, value in values.items():
+            origins.append(
+                Origin(
+                    section=section,
+                    key=key,
+                    value=value,
+                    source=sources.get((section, key), "default"),
+                )
+            )
+    return settings, origins
+
+
+def env_variable_for(section: str, key: str) -> str | None:
+    """The environment variable that overrides one setting, if any."""
+    for variable, target in ENV_PATHS.items():
+        if target == (section, key):
+            return variable
+    return None
+
+
 LOCAL_NETWORKS = (
     ipaddress.ip_network("127.0.0.0/8"),
     ipaddress.ip_network("10.0.0.0/8"),

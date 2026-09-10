@@ -79,6 +79,21 @@ nothing — it only proves each configured class can be imported.
 
 ---
 
+## 2a. See the configuration you are actually running
+
+```sh
+uv run python -m network_dork config --changed
+```
+
+**Expect:** `Everything is at its shipped default.` on a fresh checkout.
+
+Once you start setting environment variables, this is the command that says
+which ones took effect and which you mistyped. `config --section llm` shows
+one section including its defaults, and `config-env` lists the variable name
+for every setting.
+
+---
+
 ## 3. Look at what the model would be shown
 
 ```sh

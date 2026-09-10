@@ -18,11 +18,13 @@ terminal has no bare `python` at all, so skipping this gives you
 
 ```sh
 python scripts/make_sample_network.py --destination var/sample
-
-export NETWORK_DORK_ALERTS_PATH=var/sample/alerts.jsonl
-export NETWORK_DORK_ZEEK_DIRECTORY=var/sample/zeek
-export NETWORK_DORK_FORECAST_ADAPTER=enrichment
+source var/sample/env.sh
+python -m network_dork config --changed
 ```
+
+`config --changed` prints the three settings the sourced file set, and where
+each came from. Run it whenever the engine does something you did not
+expect — a setting layered from somewhere you forgot is the usual answer.
 
 Twenty days of connection logs for four hosts and three alerts. One host
 beacons, one exfiltrates, one is entirely ordinary. The third is the

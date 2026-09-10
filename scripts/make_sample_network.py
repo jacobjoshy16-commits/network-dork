@@ -170,14 +170,27 @@ def main() -> int:
     now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
     counts = write_network(args.destination, args.days, now)
 
+    # Three exports retyped in every new terminal is the kind of friction
+    # that stops people from re-running the loop. Write them once.
+    env_path = Path(args.destination) / "env.sh"
+    env_path.write_text(
+        "# Point network-dork at this sample network:\n"
+        "#   source " + str(env_path) + "\n"
+        f"export NETWORK_DORK_ALERTS_PATH={args.destination}/alerts.jsonl\n"
+        f"export NETWORK_DORK_ZEEK_DIRECTORY={args.destination}/zeek\n"
+        "export NETWORK_DORK_FORECAST_ADAPTER=enrichment\n",
+        encoding="utf-8",
+    )
+
     print(f"Wrote {counts['connections']:,} connections over {args.days} days")
     print(f"      {counts['alerts']} alerts to {args.destination}/alerts.jsonl")
     print()
-    print("Try each of these and compare what comes back:")
+    print("Point the engine at it:")
     print()
-    print(f"  export NETWORK_DORK_ALERTS_PATH={args.destination}/alerts.jsonl")
-    print(f"  export NETWORK_DORK_ZEEK_DIRECTORY={args.destination}/zeek")
-    print("  export NETWORK_DORK_FORECAST_ADAPTER=enrichment")
+    print(f"  source {env_path}")
+    print("  python -m network_dork config --changed   # confirm it took")
+    print()
+    print("Then try each of these and compare what comes back:")
     print()
     print("  python -m network_dork readiness")
     print("  python -m network_dork trace --alert-id sample-beacon --fake")

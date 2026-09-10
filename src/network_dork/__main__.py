@@ -747,6 +747,94 @@ def show_context(
         ).gather(matches[0])
         typer.echo(context.model_dump_json(indent=2))
 
+@app.command("config")
+def config_command(
+    config: Annotated[Path | None, typer.Option("--config")] = None,
+    changed: Annotated[
+        bool,
+        typer.Option(
+            "--changed",
+            help="Only settings you have overridden, not the shipped defaults.",
+        ),
+    ] = False,
+    section: Annotated[
+        str | None,
+        typer.Option("--section", help="Limit output to one section."),
+    ] = None,
+) -> None:
+    """Show the settings actually in effect, and where each came from.
+
+    Layering a YAML file, an optional override, and environment variables
+    means no single file answers "why is it doing that". This does, and it
+    validates the whole configuration as a side effect: if it prints, the
+    settings are loadable.
+    """
+    from network_dork.config import env_variable_for, explain
+
+    try:
+        _, origins = explain(config)
+    except (ValueError, OSError) as exc:
+        typer.echo(f"Configuration is not loadable: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if section is not None:
+        origins = [item for item in origins if item.section == section]
+        if not origins:
+            raise typer.BadParameter(f"No such section: {section}")
+    if changed:
+        origins = [item for item in origins if not item.from_default]
+        if not origins:
+            typer.echo("Everything is at its shipped default.")
+            return
+
+    current = None
+    for item in origins:
+        if item.section != current:
+            current = item.section
+            typer.echo(f"\n[{current}]")
+        value = "<set>" if item.redacted and item.value else item.value
+        if item.redacted and not item.value:
+            value = "<unset>"
+        marker = " " if item.from_default else "*"
+        typer.echo(f"{marker} {item.key:<28} {str(value)[:60]}")
+        if not item.from_default:
+            typer.echo(f"{'':<31}from {item.source}")
+
+    if not changed:
+        overridden = sum(1 for item in origins if not item.from_default)
+        typer.echo(
+            f"\n* marks the {overridden} setting(s) you have changed. "
+            "Run with --changed to see only those."
+        )
+
+
+@app.command("config-env")
+def config_env_command(
+    section: Annotated[
+        str | None,
+        typer.Option("--section", help="Limit output to one section."),
+    ] = None,
+) -> None:
+    """List every environment variable that overrides a setting.
+
+    The names are otherwise only discoverable by reading config.py, which is
+    not a reasonable thing to ask of someone configuring a deployment.
+    """
+    from network_dork.config import ENV_PATHS
+
+    rows = sorted(
+        ENV_PATHS.items(), key=lambda item: (item[1][0], item[1][1])
+    )
+    current = None
+    for variable, (owner, key) in rows:
+        if section is not None and owner != section:
+            continue
+        if owner != current:
+            current = owner
+            typer.echo(f"\n[{current}]")
+        typer.echo(f"  {key:<28} {variable}")
+
+
 @app.command("eval-reports")
 def eval_reports_command(
     runs: Annotated[

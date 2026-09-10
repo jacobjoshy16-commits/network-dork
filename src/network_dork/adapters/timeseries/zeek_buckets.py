@@ -3,10 +3,14 @@
 This is read-only aggregation over logs that already exist. It computes no
 detections and derives no alert conditions; it counts and sums what is there.
 
-Scanning a connection log once per metric is acceptable for the fixture
-corpus and small deployments. Production volumes need an indexed source (the
-OpenSearch provider) or a pre-aggregated bucket store: a full scan per alert
-per metric does not scale, and that limit is documented rather than hidden.
+One alert asks for four metrics over the same host and window, so the log is
+scanned once per window and every metric is accumulated in that pass. The
+result is cached against the file's size and mtime, which is what makes the
+enrichment path cost one scan per alert instead of four.
+
+It is still a full scan. Production volumes need an indexed source (the
+OpenSearch provider) or a pre-aggregated bucket store; that limit is
+documented rather than hidden.
 """
 
 from __future__ import annotations
@@ -35,6 +39,23 @@ METRICS: dict[str, tuple[str, str]] = {
 # one hour: long enough for a rhythm to show, short enough that a beacon
 # starting mid-window still moves the number.
 REGULARITY_WINDOW = 12
+
+
+@dataclass(frozen=True)
+class Scan:
+    """Every metric for one host and window, from a single pass over the log.
+
+    Holding all four together is the point: they differ only in how a row is
+    accumulated, so computing one and discarding the parse work needed for
+    the others is three quarters of the cost for nothing.
+    """
+
+    counts: list[float]
+    sums: dict[str, list[float]]
+    distinct: dict[str, list[set[str]]]
+    observed: int
+    earliest: datetime | None
+    latest: datetime | None
 
 
 @dataclass(frozen=True)
@@ -97,16 +118,24 @@ class ZeekBucketTimeSeriesProvider:
         regularity_window: int = REGULARITY_WINDOW,
         min_observations: int = 100,
         min_span_fraction: float = 0.5,
+        cached_scans: int = 4,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if min_observations < 1:
             raise ValueError("min_observations must be positive")
         if not 0 < min_span_fraction <= 1:
             raise ValueError("min_span_fraction must be within (0, 1]")
+        if cached_scans < 1:
+            raise ValueError("cached_scans must be positive")
         self.path = Path(directory) / filename
         self.regularity_window = regularity_window
         self.min_observations = min_observations
         self.min_span_fraction = min_span_fraction
+        # One alert asks for four metrics over one window, so a handful of
+        # entries covers the pattern. Bounded on purpose: an unbounded cache
+        # would grow with every alert in a long batch.
+        self.cached_scans = cached_scans
+        self._scans: dict[tuple, Scan] = {}
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     @staticmethod
@@ -180,24 +209,45 @@ class ZeekBucketTimeSeriesProvider:
             for entity, (count, first, last) in seen.items()
         }
 
-    def series(
+    def _signature(self) -> tuple[int, int] | None:
+        """Size and mtime, so an appended or rotated log is never served stale.
+
+        A live conn.log grows underneath a long-running batch. Keying the
+        cache on the file's identity rather than its path means a changed
+        file misses instead of returning yesterday's buckets.
+        """
+        try:
+            status = self.path.stat()
+        except FileNotFoundError:
+            return None
+        return (status.st_size, status.st_mtime_ns)
+
+    def _scan(
         self,
         *,
-        metric: str,
         entity: str,
         end: datetime,
         buckets: int,
         bucket_seconds: int,
-    ) -> TimeSeries:
-        if metric not in METRICS:
-            raise ValueError(f"Unknown metric: {metric}")
-        if buckets < 1 or bucket_seconds < 1:
-            raise ValueError("buckets and bucket_seconds must be positive")
+    ) -> Scan:
+        """Accumulate every metric for one host and window in one pass."""
+        key = (entity, end, buckets, bucket_seconds, self._signature())
+        cached = self._scans.get(key)
+        if cached is not None:
+            return cached
 
-        kind, field = METRICS[metric]
         start = end - timedelta(seconds=bucket_seconds * buckets)
-        totals = [0.0] * buckets
-        distinct: list[set[str]] = [set() for _ in range(buckets)]
+        counts = [0.0] * buckets
+        sums: dict[str, list[float]] = {
+            field: [0.0] * buckets
+            for kind, field in METRICS.values()
+            if kind == "sum"
+        }
+        distinct: dict[str, list[set[str]]] = {
+            field: [set() for _ in range(buckets)]
+            for kind, field in METRICS.values()
+            if kind == "distinct"
+        }
         observed = 0
         earliest: datetime | None = None
         latest: datetime | None = None
@@ -234,32 +284,76 @@ class ZeekBucketTimeSeriesProvider:
                     earliest = timestamp
                 if latest is None or timestamp > latest:
                     latest = timestamp
-                if kind in ("count", "regularity"):
-                    totals[index] += 1.0
-                elif kind == "sum":
+                counts[index] += 1.0
+                for field, totals in sums.items():
                     raw = row.get(field, 0)
                     totals[index] += float(raw) if raw is not None else 0.0
-                else:
+                for field, seen in distinct.items():
                     value = row.get(field)
                     if value is not None:
-                        distinct[index].add(str(value))
+                        seen[index].add(str(value))
 
-        if kind == "distinct":
-            totals = [float(len(bucket)) for bucket in distinct]
-        elif kind == "regularity":
-            totals = rolling_regularity(totals, self.regularity_window)
+        scan = Scan(
+            counts=counts,
+            sums=sums,
+            distinct=distinct,
+            observed=observed,
+            earliest=earliest,
+            latest=latest,
+        )
+        if len(self._scans) >= self.cached_scans:
+            # Oldest first; dicts preserve insertion order.
+            del self._scans[next(iter(self._scans))]
+        self._scans[key] = scan
+        return scan
+
+    def series(
+        self,
+        *,
+        metric: str,
+        entity: str,
+        end: datetime,
+        buckets: int,
+        bucket_seconds: int,
+    ) -> TimeSeries:
+        if metric not in METRICS:
+            raise ValueError(f"Unknown metric: {metric}")
+        if buckets < 1 or bucket_seconds < 1:
+            raise ValueError("buckets and bucket_seconds must be positive")
+
+        kind, field = METRICS[metric]
+        start = end - timedelta(seconds=bucket_seconds * buckets)
+        scan = self._scan(
+            entity=entity,
+            end=end,
+            buckets=buckets,
+            bucket_seconds=bucket_seconds,
+        )
+
+        if kind == "count":
+            totals = list(scan.counts)
+        elif kind == "sum":
+            totals = list(scan.sums[field])
+        elif kind == "distinct":
+            totals = [float(len(bucket)) for bucket in scan.distinct[field]]
+        else:
+            totals = rolling_regularity(scan.counts, self.regularity_window)
 
         # Zero-filled buckets are not history. Forecasting a mostly-empty
         # series makes any real traffic look like a large deviation, which is
         # the fastest way to generate false positives. Require both enough
         # observations and enough calendar coverage before forecasting at all.
-        if observed < self.min_observations:
+        if scan.observed < self.min_observations:
             raise InsufficientHistory(
-                f"{entity}/{metric} has {observed} observations; "
+                f"{entity}/{metric} has {scan.observed} observations; "
                 f"{self.min_observations} are required"
             )
         window = (end - start).total_seconds()
-        span = (latest - earliest).total_seconds() if earliest and latest else 0
+        span = (
+            (scan.latest - scan.earliest).total_seconds()
+            if scan.earliest and scan.latest
+            else 0
+        )
         if span < window * self.min_span_fraction:
             raise InsufficientHistory(
                 f"{entity}/{metric} observations span "

@@ -43,7 +43,7 @@ nothing enforces it.
 
 ## Scale
 
-### Log scanning is linear per alert, per metric
+### Log scanning is linear per alert
 
 `ZeekLogsContextProvider` and `ZeekBucketTimeSeriesProvider` both scan the
 whole log file for each alert. Measured on synthetic data:
@@ -57,17 +57,24 @@ whole log file for each alert. Measured on synthetic data:
 Purely linear. A real `conn.log` is millions of rows per day, so this is
 roughly a minute per alert of scanning before any inference.
 
-Enrichment made this **worse**, as predicted when it was proposed: four
-metrics each trigger their own scan of the same file.
+**Enrichment used to multiply this by four**, as predicted when it was
+proposed: each of the four metrics scanned and re-parsed the same file. It
+now accumulates every metric in one pass and caches the result against the
+file's size and mtime. Measured on a 45,230-row log, four metrics for one
+host: **584 ms before, 186 ms after** — a little over 3x, and the trace
+output is byte-identical.
 
-**Fix, in order of effort:** cache the bucketed series per (host, metric,
-window) within a run — the four metrics currently rescan identical data.
-Then use the OpenSearch provider, which pushes filtering to an index. A
-pre-aggregated bucket store is the real answer at volume.
+That removes the multiplier, not the scan. The remaining cost is one full
+pass per alert.
 
-The file-based providers are honest defaults for a fixture corpus and a small
-deployment. They are not a production ingest path, and the module docstrings
-say so.
+**Fix, in order of effort:** use the OpenSearch provider, which pushes
+filtering to an index. A pre-aggregated bucket store is the real answer at
+volume. Reading `conn.log` newest-first and stopping once the window is
+covered would help a live log, where the rows of interest are at the end.
+
+The file-based providers are honest defaults for a fixture corpus and a
+small deployment. They are not a production ingest path, and the module
+docstrings say so.
 
 ### Processing is sequential
 
