@@ -1,0 +1,2 @@
+{"ts":1736942400.0,"uid":"Cnotice1","id.orig_h":"10.20.0.10","id.orig_p":50432,"id.resp_h":"192.0.2.90","id.resp_p":445,"note":"SMB::Admin_Share_Access","msg":"Admin share access observed from workstation-07.test","host":"workstation-07.test","sub":"files-seven.test"}
+{"ts":1736942700.0,"uid":"Cnotice2","id.orig_h":"10.20.0.11","id.orig_p":51022,"id.resp_h":"192.0.2.91","id.resp_p":53,"note":"DNS::Excessive_Queries","msg":"Large number of unusual DNS labels observed","host":"workstation-03.test","sub":"mfrggzdfmztwq2lk.channel-three.test"}

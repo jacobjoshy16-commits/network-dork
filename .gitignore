@@ -1,0 +1,6 @@
+.venv/
+.venv-bootstrap/
+.pytest_cache/
+var/
+__pycache__/
+*.egg-info/

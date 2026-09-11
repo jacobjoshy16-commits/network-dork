@@ -1,0 +1,12 @@
+{"host": "workstation-01.test", "result": "success", "service": "local", "src_ip": "10.77.0.1", "ts": 1736940900.0, "user": "synthetic-user-01"}
+{"host": "workstation-02.test", "result": "success", "service": "local", "src_ip": "10.77.0.2", "ts": 1736940960.0, "user": "synthetic-user-02"}
+{"host": "workstation-03.test", "result": "success", "service": "local", "src_ip": "10.77.0.3", "ts": 1736941020.0, "user": "synthetic-user-03"}
+{"host": "workstation-04.test", "result": "success", "service": "local", "src_ip": "10.77.0.4", "ts": 1736941080.0, "user": "synthetic-user-04"}
+{"host": "workstation-05.test", "result": "success", "service": "local", "src_ip": "10.77.0.5", "ts": 1736941140.0, "user": "synthetic-user-05"}
+{"host": "workstation-06.test", "result": "success", "service": "local", "src_ip": "10.77.0.6", "ts": 1736941200.0, "user": "synthetic-user-06"}
+{"host": "workstation-07.test", "result": "success", "service": "smb", "src_ip": "10.77.0.7", "ts": 1736941260.0, "user": "synthetic-user-07"}
+{"host": "workstation-08.test", "result": "success", "service": "rdp", "src_ip": "10.77.0.8", "ts": 1736941320.0, "user": "synthetic-user-08"}
+{"host": "workstation-09.test", "result": "success", "service": "ssh", "src_ip": "10.77.0.9", "ts": 1736941380.0, "user": "synthetic-user-09"}
+{"host": "workstation-10.test", "result": "success", "service": "local", "src_ip": "10.77.0.10", "ts": 1736941440.0, "user": "synthetic-user-10"}
+{"host": "workstation-11.test", "result": "success", "service": "local", "src_ip": "10.77.0.11", "ts": 1736941500.0, "user": "synthetic-user-11"}
+{"host": "workstation-12.test", "result": "success", "service": "ssh", "src_ip": "10.77.0.12", "ts": 1736941560.0, "user": "synthetic-user-12"}

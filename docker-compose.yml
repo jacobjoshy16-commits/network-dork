@@ -1,0 +1,56 @@
+services:
+  network-dork:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /workspace
+    # Telemetry and code are read-only; only var/ is writable. The container
+    # cannot modify the logs it investigates even if the application tried.
+    volumes:
+      - .:/workspace:ro
+      - ./var:/workspace/var
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      NETWORK_DORK_CONFIG: /workspace/config/default.yaml
+      # host.docker.internal is a host-local bridge, not a LAN hop, but it is
+      # not loopback either. The demo opts in explicitly rather than
+      # weakening the default for everyone.
+      NETWORK_DORK_ALLOW_PLAINTEXT: ${NETWORK_DORK_ALLOW_PLAINTEXT:-true}
+      NETWORK_DORK_OLLAMA_BASE_URL: ${NETWORK_DORK_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      NETWORK_DORK_MODEL: ${NETWORK_DORK_MODEL:-}
+      NETWORK_DORK_TEMPERATURE: ${NETWORK_DORK_TEMPERATURE:-}
+      NETWORK_DORK_TIMEOUT_SECONDS: ${NETWORK_DORK_TIMEOUT_SECONDS:-}
+      NETWORK_DORK_MAX_ATTEMPTS: ${NETWORK_DORK_MAX_ATTEMPTS:-}
+      NETWORK_DORK_NUM_CTX: ${NETWORK_DORK_NUM_CTX:-}
+      NETWORK_DORK_NUM_PREDICT: ${NETWORK_DORK_NUM_PREDICT:-}
+      NETWORK_DORK_MAX_INPUT_CHARS: ${NETWORK_DORK_MAX_INPUT_CHARS:-}
+      NETWORK_DORK_MAX_RESPONSE_BYTES: ${NETWORK_DORK_MAX_RESPONSE_BYTES:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["sh", "-lc", "tail -f /dev/null"]
+
+  # The forecaster. Separate container so torch and the HuggingFace stack stay
+  # out of the investigation runtime's image, dependency set and SBOM.
+  # Weights are staged beforehand with scripts/stage_timesfm_weights.py; the
+  # service never downloads at request time.
+  timesfm:
+    profiles: ["timesfm"]
+    build:
+      context: ./services/timesfm
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./models/timesfm-2.5-200m:/models/timesfm-2.5-200m:ro
+    environment:
+      NETWORK_DORK_TIMESFM_CHECKPOINT: /models/timesfm-2.5-200m
+      NETWORK_DORK_TIMESFM_HOST: 0.0.0.0
+      NETWORK_DORK_TIMESFM_MAX_CONTEXT: ${NETWORK_DORK_TIMESFM_MAX_CONTEXT:-8192}
+    # Loopback only: nothing outside this host reaches the forecaster.
+    ports:
+      - "127.0.0.1:11435:11435"

@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools==78.1.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "network-dork"
+version = "0.1.0"
+description = "Local, read-only investigation of existing network security alerts"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = [
+    "httpx==0.28.1",
+    "pydantic==2.11.3",
+    "PyYAML==6.0.2",
+    "structlog==25.2.0",
+    "typer==0.15.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.5",
+]
+
+[project.scripts]
+network-dork = "network_dork.__main__:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"

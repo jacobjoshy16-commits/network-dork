@@ -1,0 +1,203 @@
+alerts:
+  path: fixtures/alerts/alerts.jsonl
+
+context:
+  zeek_directory: fixtures/zeek
+  window_days: 7
+  max_records: 30
+
+llm:
+  base_url: http://127.0.0.1:11434
+  model: qwen2.5:3b-instruct
+  temperature: 0.0
+  timeout_seconds: 120.0
+  max_attempts: 3
+  num_ctx: 24576
+  num_predict: 2048
+  max_input_chars: 60000
+  max_response_bytes: 1048576
+
+opensearch:
+  base_url: http://127.0.0.1:9200
+  alerts_index: security-alerts-*
+  flows_index: network-flows-*
+  dns_index: dns-*
+  auth_index: auth-*
+  reports_index: network-dork-reports
+  timeout_seconds: 30.0
+  max_hits: 500
+  max_response_bytes: 1048576
+
+forecast:
+  bucket_seconds: 300
+  history_buckets: 4032       # 14 days at five-minute buckets
+  horizon_buckets: 72         # the 6 hours before the alert
+  period_buckets: 288         # one day
+  max_evidence: 5
+  min_observations: 100
+  min_span_fraction: 0.5
+  # Set to the date this deployment began collecting telemetry. Until a full
+  # history window has passed, enrichment says it is still accumulating
+  # rather than forecasting from a partial baseline. Nothing is trained
+  # during this period: it is data collection, not model learning.
+  baseline_started_at: null
+
+security:
+  # Plaintext HTTP is refused to anything but loopback: telemetry
+  # credentials travel as HTTP Basic and must not cross a LAN in the clear.
+  # Set true only for a container bridge or a lab.
+  allow_plaintext: false
+
+agent:
+  # Identity only. The rules that make this an investigator rather than an
+  # actor are fixed in code; see src/network_dork/prompts.py.
+  name: network-dork
+  role: SOC analyst assistant
+  deployment: ""
+  additional_guidance: ""
+
+audit:
+  record_prompt_bodies: false
+
+storage:
+  state_path: var/state.sqlite3
+  reports_path: var/reports.sqlite3
+  audit_path: var/audit.jsonl
+
+runtime:
+  alert_adapter: file
+  context_adapter: zeek_logs
+  llm_adapter: ollama
+  sink_adapter: sqlite
+
+adapters:
+  alerts:
+    file:
+      class_path: network_dork.adapters.alerts.file:FileAlertSource
+      options:
+        path: "${alerts.path}"
+    suricata_eve:
+      class_path: network_dork.adapters.alerts.suricata_eve:SuricataEveAlertSource
+      options:
+        path: fixtures/source_samples/suricata/eve.json
+    zeek_notice:
+      class_path: network_dork.adapters.alerts.zeek_notice:ZeekNoticeAlertSource
+      options:
+        path: fixtures/source_samples/zeek/notice.log
+    opensearch:
+      class_path: network_dork.adapters.alerts.opensearch:OpenSearchAlertSource
+      options:
+        base_url: "${opensearch.base_url}"
+        allow_plaintext: "${security.allow_plaintext}"
+        index: "${opensearch.alerts_index}"
+        username: "${credentials.telemetry_username}"
+        password: "${credentials.telemetry_password}"
+        timeout_seconds: "${opensearch.timeout_seconds}"
+        max_hits: "${opensearch.max_hits}"
+        max_response_bytes: "${opensearch.max_response_bytes}"
+
+  context:
+    "null":
+      class_path: network_dork.adapters.context.null:NullContextProvider
+      options:
+        window_days: "${context.window_days}"
+    zeek_logs:
+      class_path: network_dork.adapters.context.zeek_logs:ZeekLogsContextProvider
+      options:
+        directory: "${context.zeek_directory}"
+        prior_alerts_path: "${alerts.path}"
+        window_days: "${context.window_days}"
+        max_records: "${context.max_records}"
+        audit: "${services.audit}"
+    opensearch:
+      class_path: network_dork.adapters.context.opensearch:OpenSearchContextProvider
+      options:
+        base_url: "${opensearch.base_url}"
+        allow_plaintext: "${security.allow_plaintext}"
+        flows_index: "${opensearch.flows_index}"
+        dns_index: "${opensearch.dns_index}"
+        auth_index: "${opensearch.auth_index}"
+        prior_alerts_index: "${opensearch.alerts_index}"
+        username: "${credentials.telemetry_username}"
+        password: "${credentials.telemetry_password}"
+        audit: "${services.audit}"
+        window_days: "${context.window_days}"
+        timeout_seconds: "${opensearch.timeout_seconds}"
+        max_hits: "${opensearch.max_hits}"
+        max_response_bytes: "${opensearch.max_response_bytes}"
+
+  llm:
+    fake:
+      class_path: network_dork.adapters.llm.fake:FakeLLMClient
+    ollama:
+      class_path: network_dork.adapters.llm.ollama:OllamaClient
+      options:
+        base_url: "${llm.base_url}"
+        allow_plaintext: "${security.allow_plaintext}"
+        model: "${llm.model}"
+        temperature: "${llm.temperature}"
+        timeout_seconds: "${llm.timeout_seconds}"
+        num_ctx: "${llm.num_ctx}"
+        num_predict: "${llm.num_predict}"
+        max_input_chars: "${llm.max_input_chars}"
+        max_response_bytes: "${llm.max_response_bytes}"
+
+  sinks:
+    sqlite:
+      class_path: network_dork.adapters.sinks.sqlite:SQLiteReportSink
+      options:
+        path: "${storage.reports_path}"
+        audit: "${services.audit}"
+    jsonl:
+      class_path: network_dork.adapters.sinks.jsonl:JsonlReportSink
+      options:
+        path: "${storage.reports_path}"
+        audit: "${services.audit}"
+    opensearch:
+      class_path: network_dork.adapters.sinks.opensearch:OpenSearchReportSink
+      options:
+        base_url: "${opensearch.base_url}"
+        allow_plaintext: "${security.allow_plaintext}"
+        index: "${opensearch.reports_index}"
+        username: "${credentials.report_username}"
+        password: "${credentials.report_password}"
+        audit: "${services.audit}"
+        timeout_seconds: "${opensearch.timeout_seconds}"
+        max_response_bytes: "${opensearch.max_response_bytes}"
+
+  timeseries:
+    zeek_buckets:
+      class_path: network_dork.adapters.timeseries.zeek_buckets:ZeekBucketTimeSeriesProvider
+      options:
+        directory: "${context.zeek_directory}"
+        min_observations: "${forecast.min_observations}"
+        min_span_fraction: "${forecast.min_span_fraction}"
+
+  forecasters:
+    baseline:
+      class_path: network_dork.anomaly:SeasonalNaiveForecaster
+      options:
+        period_buckets: "${forecast.period_buckets}"
+    timesfm:
+      class_path: network_dork.adapters.forecast.timesfm_http:TimesFMForecaster
+      options:
+        base_url: "${forecast.base_url}"
+        allow_plaintext: "${security.allow_plaintext}"
+        timeout_seconds: "${forecast.timeout_seconds}"
+        max_response_bytes: "${forecast.max_response_bytes}"
+
+  forecast:
+    enrichment:
+      class_path: network_dork.adapters.context.forecast:ForecastEnrichingContextProvider
+      options:
+        inner: "${services.inner_context}"
+        series_provider: "${services.series_provider}"
+        forecaster: "${services.forecaster}"
+        audit: "${services.audit}"
+        bucket_seconds: "${forecast.bucket_seconds}"
+        history_buckets: "${forecast.history_buckets}"
+        horizon_buckets: "${forecast.horizon_buckets}"
+        max_evidence: "${forecast.max_evidence}"
+        min_score: "${forecast.min_score}"
+        min_score_by_metric: "${forecast.min_score_by_metric}"
+        baseline_started_at: "${forecast.baseline_started_at}"

@@ -1,0 +1,38 @@
+{
+  "took": 3,
+  "timed_out": false,
+  "hits": {
+    "total": {"value": 2, "relation": "eq"},
+    "max_score": 1.0,
+    "hits": [
+      {
+        "_index": "security-alerts-2025.01.15",
+        "_id": "os-alert-1",
+        "_source": {
+          "@timestamp": "2025-01-15T12:00:00Z",
+          "event": {"id": "siem-1", "action": "Existing SIEM alert"},
+          "rule": {"name": "Suspicious DNS tunneling"},
+          "message": "Existing SIEM alert for encoded DNS labels.",
+          "source": {"ip": "10.30.0.5"},
+          "destination": {"ip": "10.77.255.53", "domain": "resolver.test"},
+          "host": {"name": "workstation-03.test"},
+          "dns": {"question": {"name": "mfrggzdfmztwq2lk.channel-three.test"}}
+        }
+      },
+      {
+        "_index": "security-alerts-2025.01.15",
+        "_id": "os-alert-2",
+        "_source": {
+          "@timestamp": "2025-01-15T12:07:00Z",
+          "event": {"id": "siem-2", "action": "Existing SIEM alert"},
+          "signal": {"rule": {"name": "Possible outbound exfiltration"}},
+          "message": "Existing SIEM alert for a large outbound HTTPS transfer.",
+          "source": {"ip": "10.30.0.8"},
+          "destination": {"ip": "192.0.2.81", "domain": "upload-five.test"},
+          "host": {"name": "workstation-05.test"},
+          "url": {"domain": "upload-five.test"}
+        }
+      }
+    ]
+  }
+}

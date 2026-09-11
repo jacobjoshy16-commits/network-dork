@@ -1,0 +1,103 @@
+{
+  "alerts": {
+    "syn-001": {
+      "benign": false,
+      "benign_acceptance": null,
+      "category": "c2_beaconing",
+      "mitre_technique": "T1071.001",
+      "nist_control": "SI-4",
+      "origin": "synthetic"
+    },
+    "syn-002": {
+      "benign": false,
+      "benign_acceptance": null,
+      "category": "c2_beaconing",
+      "mitre_technique": "T1071.001",
+      "nist_control": "SI-4",
+      "origin": "synthetic"
+    },
+    "syn-003": {
+      "benign": false,
+      "benign_acceptance": null,
+      "category": "dns_tunneling",
+      "mitre_technique": "T1071.004",
+      "nist_control": "SI-4",
+      "origin": "synthetic"
+    },
+    "syn-004": {
+      "benign": false,
+      "benign_acceptance": null,
+      "category": "dns_tunneling",
+      "mitre_technique": "T1071.004",
+      "nist_control": "SI-4",
+      "origin": "synthetic"
+    },
+    "syn-005": {
+      "benign": false,
+      "benign_acceptance": null,
+      "category": "data_exfiltration",
+      "mitre_technique": "T1041",
+      "nist_control": "SC-7",
+      "origin": "synthetic"
+    },
+    "syn-006": {
+      "benign": false,
+      "benign_acceptance": null,
+      "category": "data_exfiltration",
+      "mitre_technique": "T1041",
+      "nist_control": "SC-7",
+      "origin": "synthetic"
+    },
+    "syn-007": {
+      "benign": false,
+      "benign_acceptance": null,
+      "category": "lateral_movement",
+      "mitre_technique": "T1021.002",
+      "nist_control": "AC-17",
+      "origin": "synthetic"
+    },
+    "syn-008": {
+      "benign": false,
+      "benign_acceptance": null,
+      "category": "lateral_movement",
+      "mitre_technique": "T1021.001",
+      "nist_control": "AC-17",
+      "origin": "synthetic"
+    },
+    "syn-009": {
+      "benign": false,
+      "benign_acceptance": null,
+      "category": "lateral_movement",
+      "mitre_technique": "T1021.004",
+      "nist_control": "AC-17",
+      "origin": "synthetic"
+    },
+    "syn-010": {
+      "benign": true,
+      "benign_acceptance": "low_confidence_or_null_technique",
+      "category": "benign",
+      "mitre_technique": null,
+      "nist_control": null,
+      "origin": "synthetic"
+    },
+    "syn-011": {
+      "benign": true,
+      "benign_acceptance": "low_confidence_or_null_technique",
+      "category": "benign",
+      "mitre_technique": null,
+      "nist_control": null,
+      "origin": "synthetic"
+    },
+    "syn-012": {
+      "benign": true,
+      "benign_acceptance": "low_confidence_or_null_technique",
+      "category": "benign",
+      "mitre_technique": null,
+      "nist_control": null,
+      "origin": "synthetic"
+    }
+  },
+  "mapping_note": "Reference labels describe author intent. Sparse telemetry may justify uncertainty; NIST mappings are not uniquely determined.",
+  "origin": "Entire corpus is synthetic and authored for this project.",
+  "schema_version": 1
+}

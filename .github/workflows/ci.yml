@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+      - arena/**
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Verify lockfile
+        run: uv lock --locked
+
+      - name: Run tests
+        run: make test
+
+      - name: List adapters
+        run: uv run python -m network_dork adapters --config config/default.yaml
+
+      - name: Fake end-to-end run
+        run: |
+          NETWORK_DORK_STATE_PATH=var/ci/state.sqlite3 \
+          NETWORK_DORK_REPORTS_PATH=var/ci/reports.sqlite3 \
+          NETWORK_DORK_AUDIT_PATH=var/ci/audit.jsonl \
+          uv run python -m network_dork run --config config/default.yaml --fake
