@@ -139,7 +139,6 @@ def test_retry_can_recover_without_filling_fields(tmp_path):
     [
         ("alert_id", "different-alert"),
         ("model_version", "fabricated-model"),
-        ("timestamp", "2024-01-01T00:00:00+00:00"),
         ("context_used", ["flows:nonexistent:999"]),
     ],
 )
@@ -151,6 +150,23 @@ def test_semantically_invalid_output_is_not_persisted_as_report(
     bad = json.dumps(value_dict)
     pipeline, *_ = build(tmp_path, [bad, bad, bad])
     assert isinstance(pipeline.run_once()[0], FailureRecord)
+
+def test_the_persisted_timestamp_is_ours_whatever_the_model_sent(tmp_path):
+    """The report timestamp is this process's clock, so a model that copies
+    it badly -- qwen2.5:3b-instruct drops microseconds -- costs nothing, and
+    no time typed by a model reaches the audit record."""
+    value_dict = json.loads(valid_response())
+    value_dict["timestamp"] = "2024-01-01T00:00:00+00:00"
+    pipeline, llm, sink, state, alert = build(
+        tmp_path, [json.dumps(value_dict)]
+    )
+
+    result = pipeline.run_once()[0]
+
+    assert isinstance(result, InvestigationReport)
+    assert result.timestamp == NOW
+    assert len(llm.calls) == 1
+
 
 def test_llm_unavailability_has_explicit_failure_record(tmp_path):
     pipeline, llm, *_ = build(

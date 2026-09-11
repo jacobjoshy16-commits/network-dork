@@ -176,11 +176,16 @@ class InvestigationPipeline:
         expected_timestamp = datetime.fromisoformat(
             request["required_identity"]["timestamp"].replace("Z", "+00:00")
         )
+        # The report timestamp belongs to this process, not to the model.
+        # It is sent in required_identity so the schema is satisfiable, but a
+        # model that mistranscribes a microsecond of it must not cost an
+        # otherwise sound investigation -- and a time typed by a language
+        # model has no business in an audit artifact. alert_id and
+        # model_version stay strict above: those bind the response to this
+        # request, and both are short enough to copy reliably.
         if report.timestamp != expected_timestamp:
-            raise ValueError(
-                f"Model returned the wrong report timestamp: "
-                f"{report.timestamp.isoformat()} not "
-                f"{expected_timestamp.isoformat()}"
+            report = report.model_copy(
+                update={"timestamp": expected_timestamp}
             )
 
         allowed = {f"alert:{alert.alert_id}"}

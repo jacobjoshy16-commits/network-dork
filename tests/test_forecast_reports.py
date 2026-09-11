@@ -165,6 +165,26 @@ def test_citing_a_forecast_id_that_was_not_supplied_is_rejected():
         )
 
 
+def test_a_mistranscribed_timestamp_does_not_lose_the_report():
+    """Observed with qwen2.5:3b-instruct: every field right but the
+    microseconds, which the application owns anyway."""
+    prompt = InvestigationPrompt(
+        "qwen2.5:3b-instruct", clock=lambda: NOW
+    ).render(context())[1]
+    sloppy = report(timestamp=NOW.replace(microsecond=405000))
+
+    validated = InvestigationPipeline._validate_response(
+        sloppy.model_dump_json(),
+        alert(),
+        context(),
+        "qwen2.5:3b-instruct",
+        prompt,
+    )
+
+    assert validated.timestamp == NOW
+    assert validated.summary == sloppy.summary
+
+
 def test_entities_named_only_in_forecast_evidence_count_as_grounded():
     """Forecast records carry the entity; naming it is not fabrication."""
     grounded = report(

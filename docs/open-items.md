@@ -123,17 +123,22 @@ seasonal-naive baseline, comparing 3.0 internally is a legitimate way to
 learn whether a learned forecaster helps at all here — the result just
 cannot ship without a commercial licence or a hosted route.
 
-### TimesFM has never been run
+### ~~TimesFM has never been run~~ — run, on real weights
 
-The sidecar's `timesfm[torch]==2.5.0` pin never existed on PyPI — the package
-version is not the model version, and 2.0.2 is the release that ships
-`TimesFM_2p5_200M_torch`. That the pin was wrong for this long is the clearest
-evidence that no real inference has happened here.
+TimesFM 2.5-200M has now been executed on staged Apache-2.0 weights via the
+sidecar, on an M-series MacBook Air, CPU only. `preflight` passed all three
+forecaster checks: it produced a forecast in 4.3 s, its band bracketed its
+median, and it continued an unseen periodic series to a mean error of 2% of
+amplitude against a 25% tolerance.
 
-The adapter, sidecar, weight staging, and licence guards exist and are
-tested against a mock transport. No real TimesFM inference has happened in
-this repository. `make eval` compares it against the baseline the moment a
-sidecar is running.
+Getting there fixed one real defect: the sidecar pinned
+`timesfm[torch]==2.5.0`, a version that has never existed on PyPI. The
+package version is not the model version — releases run 2.0.2 then 3.0.0,
+and 2.0.2 is what ships `TimesFM_2p5_200M_torch`.
+
+**Still unmeasured:** whether it beats the seasonal-naive baseline, which
+scores 0% on that same continuation probe. `make eval` answers that and has
+not been run against a live sidecar yet.
 
 ## Model behaviour
 
@@ -164,7 +169,17 @@ NIST precision, and high confidence on benign alerts. The scoring is tested
 against scripted outcomes, so the arithmetic is verified.
 
 **No real model has been scored by it.** Every number it can print is
-currently hypothetical, because this repository has no Ollama. The 3B vs 7B
+currently hypothetical, because this repository has no Ollama.
+
+One report-level defect has surfaced from a real model, though.
+`qwen2.5:3b-instruct` reproduced a `required_identity` timestamp as
+`...04.405000+00:00` where the prompt said `...04.406485+00:00` — every
+field an analyst cares about correct, the microseconds wrong. The pipeline
+rejected the whole report for it. Asking a 3B model to transcribe 32 digits
+the application already knows was spending model reliability on nothing, and
+would have depressed the `usable` column for a reason unrelated to
+investigative quality. The report timestamp is now stamped from this
+process's clock; `alert_id` and `model_version` stay strictly checked. The 3B vs 7B
 question in `docs/vm-setup.md` §6 is written as a procedure, not a result.
 
 Twelve alerts is also a very small sample. It can tell you a model fails
