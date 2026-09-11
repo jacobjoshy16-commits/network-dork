@@ -10,9 +10,12 @@ Four things are measured, in descending order of how much they matter:
 schema and grounding checks until its attempts ran out? A model that writes
 beautiful prose one time in three is not usable, however good that one is.
 
-**Calibration.** Did it claim high confidence on a benign alert, or admit low
-confidence when the evidence was thin? Overconfidence on benign traffic is
-the failure that costs an analyst's trust.
+**Calibration, in both directions.** Overconfidence on benign traffic is the
+failure that costs an analyst's trust. Dismissing a malicious alert at low
+confidence is the failure that costs an incident: an analyst who reads "this
+is a known benign pattern" on live C2 closes the ticket. A scorecard that
+counts only the first direction reports a model that dismisses everything as
+perfectly calibrated, so both are counted here.
 
 **Attribution.** Did the MITRE technique and NIST control match the label?
 Scored, but weighted lightly: a report can be genuinely useful while
@@ -83,6 +86,12 @@ class ReportScore:
     benign_overconfident: list[str] = field(default_factory=list)
     benign_seen: int = 0
 
+    # The mirror image: alerts the labels call malicious, written up at low
+    # confidence. This is the direction that loses an incident rather than
+    # an analyst's patience, and it is the one a small model fails silently.
+    malicious_dismissed: list[str] = field(default_factory=list)
+    malicious_seen: int = 0
+
     cited_evidence: int = 0
     cited_alert_only: int = 0
 
@@ -108,6 +117,12 @@ class ReportScore:
         if not self.benign_seen:
             return 0.0
         return len(self.benign_overconfident) / self.benign_seen
+
+    @property
+    def malicious_dismissal_rate(self) -> float:
+        if not self.malicious_seen:
+            return 0.0
+        return len(self.malicious_dismissed) / self.malicious_seen
 
     @property
     def evidence_use_rate(self) -> float:
@@ -158,6 +173,12 @@ def score_outcome(
         score.benign_seen += 1
         if outcome.confidence == "high":
             score.benign_overconfident.append(outcome.alert_id)
+    else:
+        score.malicious_seen += 1
+        # "medium" still puts the alert in front of a human; "low" is the
+        # report that tells them not to bother.
+        if outcome.confidence == "low":
+            score.malicious_dismissed.append(outcome.alert_id)
 
 
 def render_score(score: ReportScore) -> str:
@@ -190,6 +211,17 @@ def render_score(score: ReportScore) -> str:
                 else "  (named none, which the prompt permits)"
             )
         )
+    if score.malicious_seen:
+        lines.append(
+            f"  malicious dismissed   "
+            f"{len(score.malicious_dismissed)}/{score.malicious_seen}"
+            f"  ({score.malicious_dismissal_rate:.0%})"
+            + (
+                "   <-- low confidence on a real attack"
+                if score.malicious_dismissed
+                else ""
+            )
+        )
     if score.benign_seen:
         lines.append(
             f"  benign overconfident  "
@@ -214,7 +246,7 @@ def compare(scores: list[ReportScore]) -> str:
         return "no models scored"
     header = (
         f"{'model':<28} {'usable':>8} {'evidence':>9} "
-        f"{'MITRE ok':>9} {'benign hi':>10}"
+        f"{'MITRE ok':>9} {'missed':>9} {'benign hi':>10}"
     )
     rows = [header, "-" * len(header)]
     for score in scores:
@@ -222,12 +254,13 @@ def compare(scores: list[ReportScore]) -> str:
             f"{score.model:<28} {score.usable_rate:>7.0%} "
             f"{score.evidence_use_rate:>8.0%} "
             f"{score.technique_matched:>4}/{score.technique_offered:<4} "
+            f"{len(score.malicious_dismissed):>4}/{score.malicious_seen:<4} "
             f"{len(score.benign_overconfident):>4}/{score.benign_seen:<5}"
         )
     rows.append("")
     rows.append(
         "A larger model earns its cost by raising 'usable' and 'evidence' "
-        "without raising 'benign hi'."
+        "while lowering 'missed', without raising 'benign hi'."
     )
     return "\n".join(rows)
 

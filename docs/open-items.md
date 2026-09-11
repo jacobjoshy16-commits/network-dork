@@ -171,7 +171,37 @@ against scripted outcomes, so the arithmetic is verified.
 **No real model has been scored by it.** Every number it can print is
 currently hypothetical, because this repository has no Ollama.
 
-One report-level defect has surfaced from a real model, though.
+### A 3B model dismissed every attack, and the scorecard called it perfect
+
+`qwen2.5:3b-instruct` was scored on the twelve-alert corpus. Three of four
+columns were perfect: 12/12 usable, 12/12 citing real evidence, 0/3
+overconfident on benign traffic.
+
+It also wrote up **all nine malicious alerts at low or medium confidence**,
+several as affirmatively benign — "this is a known benign pattern" on
+c2_beaconing, "normal operational activity" on lateral movement, "does not
+indicate malicious intent" on an SSH campaign. It invented reassuring facts
+that no evidence supported ("a known authoritative DNS server", "a known
+synthetic host"), and it repeated the prompt's own benign-explanation
+guidance back as a finding.
+
+`benign_overconfidence` could not see any of this: it only counts high
+confidence on benign alerts, so a model that calls everything benign scores
+zero. `report_eval.py` now counts `malicious dismissed` — low confidence on
+an alert the labels call malicious — and `compare` shows it as a `missed`
+column. The scorecard was measuring false alarms and not misses, which for
+an investigation tool is the direction that loses an incident.
+
+**Still open:** the prompt itself is a plausible cause. It supplies benign
+explanations ("often benign, such as backups, patching, or scheduled jobs")
+as guidance, and a 3B model appears to treat that as a conclusion rather
+than a hypothesis to test. Whether a 7B model, or a prompt that does not
+volunteer the benign story, changes the `missed` column is now measurable
+and unmeasured.
+
+### One report-level defect surfaced from a real model
+
+
 `qwen2.5:3b-instruct` reproduced a `required_identity` timestamp as
 `...04.405000+00:00` where the prompt said `...04.406485+00:00` — every
 field an analyst cares about correct, the microseconds wrong. The pipeline

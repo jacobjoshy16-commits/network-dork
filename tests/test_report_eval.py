@@ -163,6 +163,51 @@ def test_low_confidence_on_a_benign_alert_is_the_right_answer():
     assert score.benign_overconfidence_rate == 0.0
 
 
+def test_low_confidence_on_a_malicious_alert_is_recorded():
+    """Observed with qwen2.5:3b-instruct on the shipped corpus: nine of nine
+    malicious alerts written up at low confidence as "a known benign
+    pattern", while every other column scored perfectly."""
+    score = ReportScore(model="test")
+    score_outcome(
+        score,
+        report(alert_id="syn-001", confidence="low"),
+        LABELS["syn-001"],
+    )
+
+    assert score.malicious_seen == 1
+    assert score.malicious_dismissed == ["syn-001"]
+    assert score.malicious_dismissal_rate == 1.0
+
+
+def test_medium_confidence_on_a_malicious_alert_is_not_a_dismissal():
+    """Medium still puts the alert in front of a human, which is the job."""
+    score = ReportScore(model="test")
+    score_outcome(
+        score,
+        report(alert_id="syn-001", confidence="medium"),
+        LABELS["syn-001"],
+    )
+
+    assert score.malicious_seen == 1
+    assert score.malicious_dismissed == []
+
+
+def test_dismissing_every_attack_does_not_score_as_well_calibrated():
+    """The hole this metric closes: benign_overconfidence alone cannot tell a
+    careful model from one that calls everything benign."""
+    score = ReportScore(model="test")
+    score_outcome(
+        score, report(alert_id="syn-001", confidence="low"), LABELS["syn-001"]
+    )
+    score_outcome(
+        score, report(alert_id="syn-011", confidence="low"), LABELS["syn-011"]
+    )
+
+    assert score.benign_overconfidence_rate == 0.0
+    assert score.malicious_dismissal_rate == 1.0
+    assert "malicious dismissed   1/1" in render_score(score)
+
+
 def test_citing_only_the_alert_does_not_count_as_using_evidence():
     """Evidence was gathered and paid for; echoing the alert title ignores it."""
     score = ReportScore(model="test")
