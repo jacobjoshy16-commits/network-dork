@@ -125,6 +125,11 @@ cannot ship without a commercial licence or a hosted route.
 
 ### TimesFM has never been run
 
+The sidecar's `timesfm[torch]==2.5.0` pin never existed on PyPI — the package
+version is not the model version, and 2.0.2 is the release that ships
+`TimesFM_2p5_200M_torch`. That the pin was wrong for this long is the clearest
+evidence that no real inference has happened here.
+
 The adapter, sidecar, weight staging, and licence guards exist and are
 tested against a mock transport. No real TimesFM inference has happened in
 this repository. `make eval` compares it against the baseline the moment a

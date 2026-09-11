@@ -35,7 +35,7 @@ timesfm-down:
 
 timesfm-local-setup:
 	$(UV) venv --python 3.11 $(TIMESFM_VENV)
-	VIRTUAL_ENV=$(TIMESFM_VENV) $(UV) pip install "torch==2.5.1" "timesfm[torch]==2.5.0"
+	VIRTUAL_ENV=$(TIMESFM_VENV) $(UV) pip install "torch==2.5.1" "timesfm[torch]==2.0.2"
 
 timesfm-local:
 	NETWORK_DORK_TIMESFM_CHECKPOINT=$(CURDIR)/models/timesfm-2.5-200m \

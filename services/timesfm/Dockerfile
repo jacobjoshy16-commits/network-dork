@@ -25,7 +25,9 @@ RUN useradd --create-home --uid 10001 timesfm
 RUN pip install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cpu \
         "torch==2.5.1" \
-    && pip install --no-cache-dir "timesfm[torch]==2.5.0"
+    # The package version is not the model version: there is no timesfm 2.5.0
+# on PyPI. 2.0.2 is the release that ships TimesFM_2p5_200M_torch.
+    && pip install --no-cache-dir "timesfm[torch]==2.0.2"
 
 COPY app.py /opt/timesfm/app.py
 RUN mkdir -p /models && chown -R timesfm:timesfm /models /opt/timesfm

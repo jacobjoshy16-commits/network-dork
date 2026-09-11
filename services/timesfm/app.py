@@ -72,6 +72,24 @@ class TimesFMModel:
         self.digest = checkpoint_digest(Path(checkpoint))
         self._model: Any = None
 
+    def runtime_ready(self) -> str | None:
+        """Return None when a forecast could be served, else why it could not.
+
+        Weight loading is deferred, so a bare 200 from /health would otherwise
+        say nothing about whether this process can actually forecast. Checking
+        importability is cheap and catches the common deployment mistake of a
+        running sidecar with no model package installed.
+        """
+        if self._model is not None:
+            return None
+        try:
+            import timesfm  # noqa: F401
+        except ImportError:
+            return "the timesfm package is not installed in this environment"
+        if not Path(self.checkpoint).is_dir():
+            return f"checkpoint directory {self.checkpoint!r} does not exist"
+        return None
+
     def _load(self) -> Any:
         if self._model is not None:
             return self._model
@@ -154,14 +172,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/health":
             self._send(404, {"error": "not found"})
             return
-        self._send(
-            200,
-            {
-                "status": "ok",
-                "model": self.model.name,
-                "model_digest": self.model.digest,
-            },
-        )
+        blocked = self.model.runtime_ready()
+        body = {
+            "status": "ok" if blocked is None else "degraded",
+            "model": self.model.name,
+            "model_digest": self.model.digest,
+        }
+        if blocked is not None:
+            body["detail"] = blocked
+        self._send(200, body)
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
         if self.path != "/forecast":

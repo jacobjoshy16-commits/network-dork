@@ -119,7 +119,13 @@ Same boundary, same loopback port, no Docker Desktop. On Apple Silicon this
 is also the faster path — the Mac torch wheel is native, while the container
 would run CPU-only under emulation.
 
-Verify from a second terminal exactly as below.
+Verify from a second terminal, **from the repo directory** — `uv run` outside
+it finds no project and falls back to a bare interpreter, which reports
+`No module named network_dork`.
+
+A `/health` of `"status": "degraded"` means the process is up but could not
+forecast if asked, and `detail` says why. Only `"status": "ok"` means the
+model package and checkpoint are both present.
 
 ```sh
 curl -s http://127.0.0.1:11435/health
