@@ -162,16 +162,26 @@ class InvestigationPipeline:
     ) -> InvestigationReport:
         report = InvestigationReport.model_validate_json(raw)
         if report.alert_id != alert.alert_id:
-            raise ValueError("Model returned the wrong alert_id")
+            raise ValueError(
+                f"Model returned the wrong alert_id: "
+                f"{report.alert_id!r} not {alert.alert_id!r}"
+            )
         if report.model_version != model_version:
-            raise ValueError("Model returned the wrong model_version")
+            raise ValueError(
+                f"Model returned the wrong model_version: "
+                f"{report.model_version!r} not {model_version!r}"
+            )
 
         request = json.loads(user_prompt)
         expected_timestamp = datetime.fromisoformat(
             request["required_identity"]["timestamp"].replace("Z", "+00:00")
         )
         if report.timestamp != expected_timestamp:
-            raise ValueError("Model returned the wrong report timestamp")
+            raise ValueError(
+                f"Model returned the wrong report timestamp: "
+                f"{report.timestamp.isoformat()} not "
+                f"{expected_timestamp.isoformat()}"
+            )
 
         allowed = {f"alert:{alert.alert_id}"}
         for group in (

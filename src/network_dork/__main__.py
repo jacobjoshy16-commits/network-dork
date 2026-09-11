@@ -395,7 +395,7 @@ def preflight_command(
                         result(
                             "returns a valid report",
                             False,
-                            f"{type(exc).__name__}: {str(exc)[:80]}",
+                            f"{type(exc).__name__}: {str(exc)[:160]}",
                         )
                     else:
                         violations = grounding_check(report, context)
