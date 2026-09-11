@@ -1,5 +1,6 @@
 .venv/
 .venv-bootstrap/
+.venv-timesfm/
 .pytest_cache/
 var/
 __pycache__/

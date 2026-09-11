@@ -2,8 +2,9 @@ UV ?= uv
 CONFIG ?= config/default.yaml
 COMPOSE ?= docker compose
 SERVICE ?= network-dork
+TIMESFM_VENV ?= .venv-timesfm
 
-.PHONY: sync test adapters context run-fake demo-local up down demo ci-local corpus eval eval-reports preflight timesfm-up timesfm-down
+.PHONY: sync test adapters context run-fake demo-local up down demo ci-local corpus eval eval-reports preflight timesfm-up timesfm-down timesfm-local-setup timesfm-local
 
 sync:
 	$(UV) sync --extra dev
@@ -31,6 +32,15 @@ timesfm-up:
 
 timesfm-down:
 	$(COMPOSE) --profile timesfm down --remove-orphans
+
+timesfm-local-setup:
+	$(UV) venv --python 3.11 $(TIMESFM_VENV)
+	VIRTUAL_ENV=$(TIMESFM_VENV) $(UV) pip install "torch==2.5.1" "timesfm[torch]==2.5.0"
+
+timesfm-local:
+	NETWORK_DORK_TIMESFM_CHECKPOINT=$(CURDIR)/models/timesfm-2.5-200m \
+	HF_HUB_OFFLINE=1 \
+	$(TIMESFM_VENV)/bin/python services/timesfm/app.py
 
 corpus: sync
 	$(UV) run python scripts/generate_timeseries_corpus.py

@@ -103,6 +103,24 @@ docker compose --profile timesfm logs -f timesfm
 First start compiles the model and takes a few minutes. Wait for it before
 verifying.
 
+### Without Docker (macOS, or any host where Docker is unwanted)
+
+The container exists to keep torch out of the investigation runtime's image
+and SBOM. That matters for a deployment; it does not matter for an
+evaluation on your own laptop. The sidecar is a stdlib HTTP server, so it
+runs directly in a throwaway virtualenv that the project never imports:
+
+```sh
+make timesfm-local-setup    # once: a separate venv holding torch
+make timesfm-local          # foreground; leave it running
+```
+
+Same boundary, same loopback port, no Docker Desktop. On Apple Silicon this
+is also the faster path — the Mac torch wheel is native, while the container
+would run CPU-only under emulation.
+
+Verify from a second terminal exactly as below.
+
 ```sh
 curl -s http://127.0.0.1:11435/health
 NETWORK_DORK_FORECASTER_ADAPTER=timesfm python -m network_dork preflight
