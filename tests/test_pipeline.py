@@ -58,6 +58,7 @@ def valid_response():
         "mitre_technique": None,
         "nist_control": None,
         "confidence": "low",
+        "disposition": "inconclusive",
         "context_used": ["alert:syn-001", "flows:conn.log:1"],
         "suggested_next_step": "An analyst should review the existing alert.",
         "model_version": "fake:test-only",

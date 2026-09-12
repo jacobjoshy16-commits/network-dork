@@ -163,6 +163,7 @@ def report() -> InvestigationReport:
         mitre_technique=None,
         nist_control=None,
         confidence="low",
+        disposition="inconclusive",
         context_used=["alert:os-report-1"],
         suggested_next_step="A human analyst should review the source evidence.",
         model_version="fake:test-only",

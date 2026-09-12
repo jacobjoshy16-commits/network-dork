@@ -53,6 +53,7 @@ def report(alert_id: str = "syn-001") -> InvestigationReport:
         mitre_technique=None,
         nist_control=None,
         confidence="low",
+        disposition="inconclusive",
         context_used=[],
         suggested_next_step="An analyst should review the original alert.",
         model_version="fake:test-only",

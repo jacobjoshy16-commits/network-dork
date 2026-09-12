@@ -130,7 +130,8 @@ def render_report(
         out.append(f"       {alert_line}")
     out.append(RULE)
     out.append(
-        f"CONFIDENCE  {report.confidence.upper():<8}"
+        f"{report.disposition.upper():<13}"
+        f"confidence {report.confidence}"
         + ("   " + "   ".join(labels) if labels else "")
     )
     out.append("")

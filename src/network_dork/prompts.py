@@ -69,10 +69,27 @@ Base the investigation only on the supplied alert and supporting context.
 Never invent IP addresses, hostnames, domains, users, or events.
 Distinguish observations from hypotheses. An alert is not proof of intent.
 Missing telemetry is normal. Mention unavailable context in the summary.
-If evidence is insufficient, explicitly say so and use low confidence.
 Use a MITRE ATT&CK technique ID and a NIST SP 800-53 control ID only when
 reasonably confident; otherwise produce null for those fields.
 Benign activity can resemble malicious activity; do not assume malice.
+Malicious activity also resembles benign activity, and an alert exists
+because a sensor already found something worth a second look. Report what
+the evidence supports in either direction.
+
+Two separate judgements are required of you, and they are not the same.
+
+disposition is what the evidence supports about this alert:
+  benign        the evidence positively explains the activity as ordinary
+  inconclusive  the evidence is too thin to judge in either direction
+  suspicious    the evidence supports the concern the alert raised
+
+confidence is how sure you are of that disposition. Thin evidence means low
+confidence whatever the disposition. "suspicious" at low confidence is a
+normal and useful report, and so is "inconclusive" at low confidence.
+
+Never use benign to mean that you found nothing: that is inconclusive.
+Reserve benign for evidence that actively accounts for the activity. If the
+evidence is insufficient, say so in the summary and use inconclusive.
 
 forecast evidence compares observed traffic against a predicted range. It
 is a statistical observation, not a detection and not proof of malice.

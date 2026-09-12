@@ -50,12 +50,14 @@ def report(
     technique: str | None = "T1071.001",
     control: str | None = "SI-4",
     confidence: str = "medium",
+    disposition: str = "suspicious",
     context_used: list[str] | None = None,
 ) -> InvestigationReport:
     return InvestigationReport(
         alert_id=alert_id,
         timestamp=NOW,
         summary="Repeating outbound connections to a single destination.",
+        disposition=disposition,
         mitre_technique=technique,
         nist_control=control,
         confidence=confidence,
@@ -141,7 +143,7 @@ def test_high_confidence_on_a_benign_alert_is_recorded():
     score = ReportScore(model="test")
     score_outcome(
         score,
-        report(alert_id="syn-011", confidence="high"),
+        report(alert_id="syn-011", confidence="high", disposition="suspicious"),
         LABELS["syn-011"],
     )
 
@@ -150,11 +152,11 @@ def test_high_confidence_on_a_benign_alert_is_recorded():
     assert score.benign_overconfidence_rate == 1.0
 
 
-def test_low_confidence_on_a_benign_alert_is_the_right_answer():
+def test_calling_a_benign_alert_benign_is_the_right_answer():
     score = ReportScore(model="test")
     score_outcome(
         score,
-        report(alert_id="syn-011", confidence="low"),
+        report(alert_id="syn-011", confidence="high", disposition="benign"),
         LABELS["syn-011"],
     )
 
@@ -163,33 +165,46 @@ def test_low_confidence_on_a_benign_alert_is_the_right_answer():
     assert score.benign_overconfidence_rate == 0.0
 
 
-def test_low_confidence_on_a_malicious_alert_is_recorded():
+def test_calling_a_malicious_alert_benign_is_recorded():
     """Observed with qwen2.5:3b-instruct on the shipped corpus: nine of nine
-    malicious alerts written up at low confidence as "a known benign
-    pattern", while every other column scored perfectly."""
+    malicious alerts written up as "a known benign pattern", while every
+    other column scored perfectly."""
     score = ReportScore(model="test")
     score_outcome(
         score,
-        report(alert_id="syn-001", confidence="low"),
+        report(alert_id="syn-001", disposition="benign"),
         LABELS["syn-001"],
     )
 
     assert score.malicious_seen == 1
     assert score.malicious_dismissed == ["syn-001"]
     assert score.malicious_dismissal_rate == 1.0
+    assert score.malicious_flagged == []
 
 
-def test_medium_confidence_on_a_malicious_alert_is_not_a_dismissal():
-    """Medium still puts the alert in front of a human, which is the job."""
+def test_inconclusive_on_a_malicious_alert_is_neither_credited_nor_charged():
+    """Admitting the evidence is thin is honest; it is not a finding."""
     score = ReportScore(model="test")
     score_outcome(
         score,
-        report(alert_id="syn-001", confidence="medium"),
+        report(alert_id="syn-001", disposition="inconclusive"),
         LABELS["syn-001"],
     )
 
-    assert score.malicious_seen == 1
     assert score.malicious_dismissed == []
+    assert score.malicious_flagged == []
+
+
+def test_calling_a_malicious_alert_suspicious_is_credited():
+    score = ReportScore(model="test")
+    score_outcome(
+        score,
+        report(alert_id="syn-001", disposition="suspicious", confidence="low"),
+        LABELS["syn-001"],
+    )
+
+    assert score.malicious_flagged == ["syn-001"]
+    assert score.malicious_flag_rate == 1.0
 
 
 def test_dismissing_every_attack_does_not_score_as_well_calibrated():
@@ -197,15 +212,15 @@ def test_dismissing_every_attack_does_not_score_as_well_calibrated():
     careful model from one that calls everything benign."""
     score = ReportScore(model="test")
     score_outcome(
-        score, report(alert_id="syn-001", confidence="low"), LABELS["syn-001"]
+        score, report(alert_id="syn-001", disposition="benign"), LABELS["syn-001"]
     )
     score_outcome(
-        score, report(alert_id="syn-011", confidence="low"), LABELS["syn-011"]
+        score, report(alert_id="syn-011", disposition="benign"), LABELS["syn-011"]
     )
 
     assert score.benign_overconfidence_rate == 0.0
     assert score.malicious_dismissal_rate == 1.0
-    assert "malicious dismissed   1/1" in render_score(score)
+    assert "attacks called benign 1/1" in render_score(score)
 
 
 def test_citing_only_the_alert_does_not_count_as_using_evidence():

@@ -20,6 +20,7 @@ def report():
         mitre_technique=None,
         nist_control=None,
         confidence="low",
+        disposition="inconclusive",
         context_used=["alert:audit-test"],
         suggested_next_step="An analyst should review the source evidence.",
         model_version="fake:test-only",

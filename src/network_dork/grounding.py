@@ -8,7 +8,8 @@ and still wrong:
 * it names an entity that appears nowhere in the supplied evidence,
 * it claims an action was taken, or recommends one, when this system cannot
   act and is instructed not to recommend acting,
-* it expresses confidence that the available context cannot support.
+* it expresses confidence that the available context cannot support, or
+* it calls an alert benign on evidence that cannot explain it.
 
 The action lexicons below are deliberately narrow. A broad keyword list
 rejects legitimate reports -- "the connection was blocked by the firewall"
@@ -175,10 +176,19 @@ def check(report: InvestigationReport, context: AlertContext) -> list[str]:
         )
 
     kinds = {"flows", "dns", "auth", "prior_alerts"}
-    if kinds.issubset(context.unavailable) and report.confidence != "low":
-        violations.append(
-            f"confidence {report.confidence!r} is unsupportable: no "
-            "supporting telemetry was available"
-        )
+    if kinds.issubset(context.unavailable):
+        if report.confidence != "low":
+            violations.append(
+                f"confidence {report.confidence!r} is unsupportable: no "
+                "supporting telemetry was available"
+            )
+        # The mirror of the rule above. Explaining an alert away is a claim
+        # about the evidence, so it needs evidence; with none gathered the
+        # only honest disposition is inconclusive.
+        if report.disposition == "benign":
+            violations.append(
+                "disposition 'benign' is unsupportable: no supporting "
+                "telemetry was available to explain the activity"
+            )
 
     return violations

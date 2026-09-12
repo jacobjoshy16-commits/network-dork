@@ -10,12 +10,14 @@ Four things are measured, in descending order of how much they matter:
 schema and grounding checks until its attempts ran out? A model that writes
 beautiful prose one time in three is not usable, however good that one is.
 
-**Calibration, in both directions.** Overconfidence on benign traffic is the
-failure that costs an analyst's trust. Dismissing a malicious alert at low
-confidence is the failure that costs an incident: an analyst who reads "this
-is a known benign pattern" on live C2 closes the ticket. A scorecard that
-counts only the first direction reports a model that dismisses everything as
-perfectly calibrated, so both are counted here.
+**Disposition, in both directions.** Calling benign traffic suspicious with
+high confidence costs an analyst's trust. Calling a real attack benign costs
+an incident: an analyst who reads "this is a known benign pattern" on live
+C2 closes the ticket. A scorecard that counts only the first direction
+reports a model that dismisses everything as perfectly calibrated, so both
+are counted -- and both are read from `disposition`, which says what the
+model concluded, rather than inferred from `confidence`, which says only how
+sure it was.
 
 **Attribution.** Did the MITRE technique and NIST control match the label?
 Scored, but weighted lightly: a report can be genuinely useful while
@@ -86,10 +88,13 @@ class ReportScore:
     benign_overconfident: list[str] = field(default_factory=list)
     benign_seen: int = 0
 
-    # The mirror image: alerts the labels call malicious, written up at low
-    # confidence. This is the direction that loses an incident rather than
+    # The mirror image: alerts the labels call malicious and the report
+    # calls benign. This is the direction that loses an incident rather than
     # an analyst's patience, and it is the one a small model fails silently.
     malicious_dismissed: list[str] = field(default_factory=list)
+    # Correctly called suspicious. The positive counterpart, so a change can
+    # be shown to help rather than only to stop hurting.
+    malicious_flagged: list[str] = field(default_factory=list)
     malicious_seen: int = 0
 
     cited_evidence: int = 0
@@ -123,6 +128,12 @@ class ReportScore:
         if not self.malicious_seen:
             return 0.0
         return len(self.malicious_dismissed) / self.malicious_seen
+
+    @property
+    def malicious_flag_rate(self) -> float:
+        if not self.malicious_seen:
+            return 0.0
+        return len(self.malicious_flagged) / self.malicious_seen
 
     @property
     def evidence_use_rate(self) -> float:
@@ -171,14 +182,15 @@ def score_outcome(
 
     if label.benign:
         score.benign_seen += 1
-        if outcome.confidence == "high":
+        # Calling ordinary traffic suspicious, and being sure about it.
+        if outcome.disposition == "suspicious" and outcome.confidence == "high":
             score.benign_overconfident.append(outcome.alert_id)
     else:
         score.malicious_seen += 1
-        # "medium" still puts the alert in front of a human; "low" is the
-        # report that tells them not to bother.
-        if outcome.confidence == "low":
+        if outcome.disposition == "benign":
             score.malicious_dismissed.append(outcome.alert_id)
+        elif outcome.disposition == "suspicious":
+            score.malicious_flagged.append(outcome.alert_id)
 
 
 def render_score(score: ReportScore) -> str:
@@ -213,11 +225,16 @@ def render_score(score: ReportScore) -> str:
         )
     if score.malicious_seen:
         lines.append(
-            f"  malicious dismissed   "
+            f"  attacks flagged       "
+            f"{len(score.malicious_flagged)}/{score.malicious_seen}"
+            f"  ({score.malicious_flag_rate:.0%})"
+        )
+        lines.append(
+            f"  attacks called benign "
             f"{len(score.malicious_dismissed)}/{score.malicious_seen}"
             f"  ({score.malicious_dismissal_rate:.0%})"
             + (
-                "   <-- low confidence on a real attack"
+                "   <-- the mistake that loses an incident"
                 if score.malicious_dismissed
                 else ""
             )
@@ -246,7 +263,7 @@ def compare(scores: list[ReportScore]) -> str:
         return "no models scored"
     header = (
         f"{'model':<28} {'usable':>8} {'evidence':>9} "
-        f"{'MITRE ok':>9} {'missed':>9} {'benign hi':>10}"
+        f"{'MITRE ok':>9} {'flagged':>9} {'missed':>9} {'benign hi':>10}"
     )
     rows = [header, "-" * len(header)]
     for score in scores:
@@ -254,13 +271,14 @@ def compare(scores: list[ReportScore]) -> str:
             f"{score.model:<28} {score.usable_rate:>7.0%} "
             f"{score.evidence_use_rate:>8.0%} "
             f"{score.technique_matched:>4}/{score.technique_offered:<4} "
+            f"{len(score.malicious_flagged):>4}/{score.malicious_seen:<4} "
             f"{len(score.malicious_dismissed):>4}/{score.malicious_seen:<4} "
             f"{len(score.benign_overconfident):>4}/{score.benign_seen:<5}"
         )
     rows.append("")
     rows.append(
-        "A larger model earns its cost by raising 'usable' and 'evidence' "
-        "while lowering 'missed', without raising 'benign hi'."
+        "A change earns its cost by raising 'flagged' and lowering 'missed' "
+        "without raising 'benign hi'."
     )
     return "\n".join(rows)
 

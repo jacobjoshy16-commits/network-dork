@@ -50,6 +50,11 @@ Control = Annotated[
 ]
 
 Confidence = Literal["low", "medium", "high"]
+# What the evidence supports about the alert, which is a separate question
+# from how sure the model is of that answer. One field cannot carry both: a
+# report that means "thin evidence" and one that means "nothing to worry
+# about" are opposite findings, and scoring could not tell them apart.
+Disposition = Literal["benign", "inconclusive", "suspicious"]
 EvidenceKind = Literal["flows", "dns", "auth", "prior_alerts", "forecast"]
 
 class DataModel(BaseModel):
@@ -159,6 +164,7 @@ class InvestigationReport(DataModel):
     alert_id: AlertId
     timestamp: AwareDatetime
     summary: NonEmpty
+    disposition: Disposition
     mitre_technique: Technique | None
     nist_control: Control | None
     confidence: Confidence

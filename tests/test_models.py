@@ -20,6 +20,7 @@ def report_data():
         "mitre_technique": None,
         "nist_control": None,
         "confidence": "low",
+        "disposition": "inconclusive",
         "context_used": ["alert:syn-001"],
         "suggested_next_step": "An analyst should review the available evidence.",
         "model_version": "test-model",
@@ -80,6 +81,7 @@ def test_every_report_field_is_required(report_data, field):
     ("field", "value"),
     [
         ("confidence", "certain"),
+        ("disposition", "probably-fine"),
         ("summary", ""),
         ("timestamp", "2025-01-15T12:01:00"),
         ("mitre_technique", "C2"),

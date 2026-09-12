@@ -88,6 +88,7 @@ def report(**overrides) -> InvestigationReport:
         "mitre_technique": None,
         "nist_control": None,
         "confidence": "low",
+        "disposition": "inconclusive",
         "context_used": ["alert:syn-001", "flows:conn.log:1"],
         "suggested_next_step": (
             "An analyst should review the proxy logs for this host."
@@ -185,6 +186,7 @@ def test_confidence_without_any_telemetry_is_rejected(confidence):
         report(
             summary="No supporting telemetry was available for this alert.",
             confidence=confidence,
+            disposition="suspicious",
             context_used=["alert:syn-001", "unavailable_context"],
         ),
         context(unavailable_all=True),
@@ -196,9 +198,26 @@ def test_low_confidence_without_telemetry_is_accepted():
     grounded = report(
         summary="No supporting telemetry was available for this alert.",
         confidence="low",
+        disposition="inconclusive",
         context_used=["alert:syn-001", "unavailable_context"],
     )
     assert check(grounded, context(unavailable_all=True)) == []
+
+
+def test_calling_an_alert_benign_without_any_telemetry_is_rejected():
+    """The mirror of the confidence rule. Explaining an alert away is a claim
+    about evidence, so with none gathered it cannot be made -- this is the
+    counterweight the prompt's nine de-escalation clauses never had."""
+    violations = check(
+        report(
+            summary="No supporting telemetry was available for this alert.",
+            confidence="low",
+            disposition="benign",
+            context_used=["alert:syn-001", "unavailable_context"],
+        ),
+        context(unavailable_all=True),
+    )
+    assert any("'benign' is unsupportable" in v for v in violations)
 
 
 # --- the original audit finding, end to end ---------------------------------
@@ -212,6 +231,7 @@ def test_the_injected_report_from_the_audit_is_now_rejected():
             "applied."
         ),
         confidence="high",
+        disposition="suspicious",
         suggested_next_step=(
             "Block 10.9.9.9 at the perimeter firewall immediately."
         ),

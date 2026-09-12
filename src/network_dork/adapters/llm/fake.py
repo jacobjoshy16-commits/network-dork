@@ -36,6 +36,9 @@ class FakeLLMClient:
             {
                 **identity,
                 "summary": summary,
+                # The deterministic client declines to judge, which is
+                # exactly what inconclusive means.
+                "disposition": "inconclusive",
                 "mitre_technique": None,
                 "nist_control": None,
                 "confidence": "low",

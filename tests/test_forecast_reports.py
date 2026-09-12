@@ -134,6 +134,7 @@ def report(**overrides) -> InvestigationReport:
         "mitre_technique": "T1071.001",
         "nist_control": "SI-4",
         "confidence": "medium",
+        "disposition": "suspicious",
         "context_used": ["alert:syn-001", "flows:conn.log:1", FORECAST_ID],
         "suggested_next_step": (
             "An analyst should review proxy logs for workstation-01.test."

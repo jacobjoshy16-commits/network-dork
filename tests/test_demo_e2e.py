@@ -51,6 +51,7 @@ class OllamaLikeHandler(BaseHTTPRequestHandler):
             "mitre_technique": None,
             "nist_control": None,
             "confidence": "low",
+            "disposition": "inconclusive",
             "context_used": [f"alert:{alert_id}"],
             "suggested_next_step": "A human analyst should review the supplied evidence.",
             "model_version": identity["model_version"],
