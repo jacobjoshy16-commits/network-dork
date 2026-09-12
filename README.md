@@ -13,7 +13,9 @@ Given an existing alert, network-dork can:
 4. Build a constrained prompt for a local Ollama model.
 5. Validate the model response against a strict report schema.
 6. Check the report's prose against the supplied evidence, rejecting
-   fabricated entities, claimed actions, and unsupportable confidence.
+   fabricated entities, claimed actions, unsupportable confidence, a benign
+   verdict nothing gathered can support, and discussion of an evidence class
+   that was never supplied.
 7. Persist either a complete investigation report or an explicit failure record.
 8. Audit every context query, every model call, and every persistence attempt.
 9. Preserve restart-safe processing state so interrupted runs can recover safely.
@@ -47,8 +49,12 @@ name.
   attempt/success/error events with timestamps, parameters, prompt and
   response digests, and the identity of the process that produced them.
 - **Reports are checked, not trusted:** prose naming entities absent from the
-  evidence, claiming an action was taken, or expressing confidence the
-  context cannot support is rejected and retried.
+  evidence, claiming an action was taken, expressing confidence the context
+  cannot support, or calling an alert benign with no telemetry to explain it
+  is rejected and retried. A report carries two separate judgements --
+  `disposition` (what the evidence supports) and `confidence` (how sure of
+  it) -- because one field could not distinguish "the evidence is thin" from
+  "there is nothing here".
 - **Enrichment never detects:** forecast evidence annotates an existing
   alert. It creates no alerts, so alert volume is unchanged.
 

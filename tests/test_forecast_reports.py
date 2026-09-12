@@ -108,7 +108,16 @@ def test_forecast_fields_reach_the_model_with_their_caveat():
 def test_the_prompt_tells_the_model_deviation_is_not_malice():
     system, _ = InvestigationPrompt("m").render(context())
     assert "not a detection and not proof of malice" in system
-    assert "Never raise confidence on a" in system
+    assert "never raise confidence on a forecast" in system
+
+
+def test_the_forecast_guidance_is_explicitly_conditional():
+    """It ships on every call, including calls with no forecast evidence, so
+    it has to say when it applies -- three of twelve reports in the first
+    real run discussed predicted ranges that were never supplied."""
+    system, _ = InvestigationPrompt("m").render(context())
+    assert "If, and only if, supplied_context contains forecast evidence" in system
+    assert "If no forecast evidence is supplied, do not mention forecasts" in system
 
 
 def test_truncation_is_disclosed_to_the_model():

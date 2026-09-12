@@ -220,6 +220,33 @@ def test_calling_an_alert_benign_without_any_telemetry_is_rejected():
     assert any("'benign' is unsupportable" in v for v in violations)
 
 
+def test_discussing_forecasts_that_were_not_supplied_is_rejected():
+    """Observed verbatim with qwen2.5:3b-instruct on a run with no forecast
+    adapter configured: "The traffic is within the expected range, as there
+    are no forecast deviations." Entity grounding could not catch it, because
+    it invents no entity -- it invents a whole evidence class."""
+    for prose in (
+        "The traffic is within the expected range, as there are no forecast "
+        "deviations.",
+        "Observed volume does not deviate from the predicted range.",
+    ):
+        violations = check(report(summary=prose), context())
+        assert any("was not supplied" in v for v in violations), prose
+
+
+def test_ordinary_prose_is_not_mistaken_for_forecast_talk():
+    """The lexicon stays narrow: "deviation" and "expected" are everyday
+    words in a security summary and must not trip this rule."""
+    grounded = report(
+        summary=(
+            "Three connections were observed, which is a deviation from this "
+            "host's usual pattern of one, and the volume was as expected for "
+            "an update check."
+        )
+    )
+    assert not any("was not supplied" in v for v in check(grounded, context()))
+
+
 # --- the original audit finding, end to end ---------------------------------
 
 

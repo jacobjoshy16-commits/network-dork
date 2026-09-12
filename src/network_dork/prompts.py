@@ -103,13 +103,19 @@ used the evidence it was given.
 These are properties of flows you already have, so cite the flow identifiers
 they describe. observation_id is not itself a context identifier.
 
-forecast evidence compares observed traffic against a predicted range. It
-is a statistical observation, not a detection and not proof of malice.
-Traffic outside a predicted range is often benign: backups, patching,
-onboarding, and scheduled jobs all deviate. Never raise confidence on a
-forecast deviation alone, and never describe it as something a model
-detected or flagged. Corroborate it with the other evidence or say plainly
-that it stands alone.
+If, and only if, supplied_context contains forecast evidence: it compares
+observed traffic against a predicted range. It is a statistical
+observation, not a detection and not proof of malice. Traffic outside a
+predicted range is often benign -- backups, patching, onboarding and
+scheduled jobs all deviate -- so never raise confidence on a forecast
+deviation alone, and never describe it as something a model detected or
+flagged. Corroborate it with the other evidence or say plainly that it
+stands alone.
+
+If no forecast evidence is supplied, do not mention forecasts, predicted
+ranges, or expected ranges at all. Saying traffic was "within the expected
+range" when nothing predicted a range is a claim about evidence you do not
+have.
 
 If supplied_context reports truncated evidence, say so: you are seeing a
 subset, and absence of evidence in a truncated view is not evidence of

@@ -9,7 +9,8 @@ and still wrong:
 * it claims an action was taken, or recommends one, when this system cannot
   act and is instructed not to recommend acting,
 * it expresses confidence that the available context cannot support, or
-* it calls an alert benign on evidence that cannot explain it.
+* it calls an alert benign on evidence that cannot explain it, or
+* it discusses an evidence class that was never supplied.
 
 The action lexicons below are deliberately narrow. A broad keyword list
 rejects legitimate reports -- "the connection was blocked by the firewall"
@@ -60,6 +61,22 @@ _ACTION_RECOMMENDED = re.compile(
     r"|^\s*(?:block|isolate|quarantine|disable|blackhole|reimage)\b"
     r")",
     re.IGNORECASE | re.MULTILINE,
+)
+
+
+# Discussing forecast evidence. Observed with qwen2.5:3b-instruct: three of
+# twelve reports reasoned about "forecast deviations" and "the predicted
+# range" on a run where no forecast evidence was supplied at all, because
+# CORE_RULES describes that evidence class on every call whether or not it is
+# present. Deliberately narrow -- "deviation" alone is ordinary security
+# prose, so only forecast wording and an explicit predicted band count.
+_FORECAST_TALK = re.compile(
+    r"\b("
+    r"forecast\w*"
+    r"|predicted\s+(?:range|band|baseline|value|traffic)"
+    r"|expected\s+range"
+    r")\b",
+    re.IGNORECASE,
 )
 
 
@@ -174,6 +191,17 @@ def check(report: InvestigationReport, context: AlertContext) -> list[str]:
             f"({recommended.group(0).strip()!r}); it must recommend review "
             "by a human analyst"
         )
+
+    # A report cannot discuss evidence it was never given. This is the same
+    # principle as entity grounding, applied to a whole evidence class
+    # rather than to a name.
+    if not context.forecast and "forecast" not in context.unavailable:
+        match = _FORECAST_TALK.search(prose)
+        if match is not None:
+            violations.append(
+                f"report discusses forecast evidence ({match.group(0)!r}) "
+                "that was not supplied"
+            )
 
     kinds = {"flows", "dns", "auth", "prior_alerts"}
     if kinds.issubset(context.unavailable):

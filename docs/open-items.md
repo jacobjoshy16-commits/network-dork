@@ -181,6 +181,20 @@ not been run against a live sidecar yet.
 
 ## Model behaviour
 
+### ~~Reports could discuss evidence they were never given~~ — fixed
+
+`CORE_RULES` described forecast evidence on every call, present or not, and
+three of twelve reports in the first real run reasoned about "forecast
+deviations" and traffic "within the expected range" on a run configured with
+no forecast adapter at all. Entity grounding could not catch it: inventing a
+whole evidence class names no entity.
+
+The guidance is now explicitly conditional, and `grounding.py` rejects
+forecast wording when no forecast evidence was supplied. The lexicon is
+narrow on purpose -- "deviation" and "expected" are ordinary words in a
+security summary, so only forecast terms and an explicit predicted band
+count.
+
 ### Grounding does not stop prompt injection
 
 Text injected into an alert becomes supplied evidence, so an IP named there
