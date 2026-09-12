@@ -94,6 +94,45 @@ points, not constants.
 configured threshold and marks any that is too low. Re-derive on your own
 telemetry before trusting them.
 
+### The corpus's labels are not derivable from its evidence
+
+This is the most serious item on this page, because it invalidates the
+measurement the report scorer exists to provide.
+
+`syn-001` is labelled `c2_beaconing`. `syn-010` is labelled `benign`. Their
+flow evidence is structurally identical:
+
+| | syn-001 (malicious) | syn-010 (benign) |
+|---|---|---|
+| interval | 300 s, zero jitter | 300 s, zero jitter |
+| `orig_bytes` / `resp_bytes` | 160 / 512, every time | 160 / 512, every time |
+| `orig_pkts` / `resp_pkts` | 4 / 4 | 4 / 4 |
+| `duration` | 0.25 | 0.25 |
+| `conn_state` | SF | SF |
+
+Only the addresses, the port (80/http against 443/ssl) and the wording of
+the alert title differ: "Periodic HTTP callback alert" against "Recurring
+workstation connection alert".
+
+So the corpus rewards a model that pattern-matches on the alert title and
+gives no credit to one that reads the telemetry -- the exact behaviour the
+`evidence` metric was written to penalise. No model of any size can score
+well on `attacks flagged`, because the evidence does not support the labels.
+`tests/test_flow_timing.py` asserts this equality, so fixing the corpus will
+break that test by design.
+
+**What this does not invalidate:** `usable`, `evidence` and schema/grounding
+behaviour are still measured honestly, and the forecast evaluation corpus in
+`fixtures/timeseries/` is a separate, generated corpus that does encode its
+labels in its data.
+
+**Fix:** make the malicious fixtures differ from the benign ones in their
+telemetry rather than in their prose -- jitter on the benign recurring host,
+a payload size that varies with a real transfer, a beacon interval that does
+not coincide with a plausible polling period. Until then, treat
+`eval-reports` disposition columns as untrustworthy and judge report quality
+by reading `trace` output.
+
 ### The corpus is synthetic
 
 Nine hosts, three campaigns, three benign confounders, generated from a seed.
@@ -192,12 +231,21 @@ an alert the labels call malicious — and `compare` shows it as a `missed`
 column. The scorecard was measuring false alarms and not misses, which for
 an investigation tool is the direction that loses an incident.
 
-**Still open:** the prompt itself is a plausible cause. It supplies benign
-explanations ("often benign, such as backups, patching, or scheduled jobs")
-as guidance, and a 3B model appears to treat that as a conclusion rather
-than a hypothesis to test. Whether a 7B model, or a prompt that does not
-volunteer the benign story, changes the `missed` column is now measurable
-and unmeasured.
+The prompt was a cause: it supplied benign explanations ("often benign, such
+as backups, patching, or scheduled jobs") as guidance with no counterweight
+anywhere, and a 3B model treated that as a conclusion rather than a
+hypothesis to test. `CORE_RULES` now states that malicious activity also
+resembles benign activity, and `grounding.py` refuses a `benign` disposition
+when no telemetry was gathered.
+
+**A correction to an earlier reading of this failure.** It looked as though
+the model had missed periodicity that was plainly present in syn-001's
+flows, and that supplying a regularity statistic would fix it. That was
+wrong: syn-010, labelled benign, has identical periodicity. See "The
+corpus's labels are not derivable from its evidence" below. Given the
+evidence supplied, `inconclusive` was closer to correct than this report
+suggested -- the model's real error was asserting *benign*, which is what
+the disposition split and the new grounding rule address.
 
 ### One report-level defect surfaced from a real model
 

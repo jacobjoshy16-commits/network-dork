@@ -30,6 +30,7 @@ import hashlib
 import json
 from typing import Callable
 
+from network_dork.flow_timing import prompt_payload
 from network_dork.models import AlertContext, InvestigationReport
 
 MAX_GUIDANCE_CHARS = 4000
@@ -90,6 +91,17 @@ normal and useful report, and so is "inconclusive" at low confidence.
 Never use benign to mean that you found nothing: that is inconclusive.
 Reserve benign for evidence that actively accounts for the activity. If the
 evidence is insufficient, say so in the summary and use inconclusive.
+
+derived_observations are computed from the flows in supplied_context, not
+queried separately. interval_regularity is the reciprocal coefficient of
+variation of the gaps between connections: high means a near-constant rate,
+low means bursty. A fixed interval with an unvarying payload size is the
+signature of an automated caller, which may be a scheduled job or a beacon
+-- say which the rest of the evidence supports. Steadiness alone is not
+malicious, but it is an observation, and a report that ignores it has not
+used the evidence it was given.
+These are properties of flows you already have, so cite the flow identifiers
+they describe. observation_id is not itself a context identifier.
 
 forecast evidence compares observed traffic against a predicted range. It
 is a statistical observation, not a detection and not proof of malice.
@@ -171,6 +183,13 @@ class InvestigationPrompt:
             evidence_ids.append("prior_alert_count")
         if context.unavailable:
             evidence_ids.append("unavailable_context")
+        # Arithmetic over the flows above rather than a new query. These
+        # are not added to allowed_context_ids on purpose: a derived
+        # statistic is a property of those flows, not separate evidence, so
+        # the model cites the flow identifiers and says what they show. It
+        # also keeps the pipeline's allow-list derived from the context
+        # alone, without trusting anything written here.
+        timing = prompt_payload(context)
 
         user = {
             "required_identity": {
@@ -181,6 +200,7 @@ class InvestigationPrompt:
             "report_schema": InvestigationReport.model_json_schema(),
             "allowed_context_ids": evidence_ids,
             "supplied_context": context.model_dump(mode="json"),
+            "derived_observations": timing,
         }
         return self.system, json.dumps(
             user, ensure_ascii=False, sort_keys=True
