@@ -6,6 +6,7 @@ from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib
+from collections import Counter
 import json
 import math
 import sqlite3
@@ -311,6 +312,94 @@ def adapters(
             typer.echo(
                 f"{kind}\t{name}\t{definition.class_path}"
             )
+
+@app.command("alerts")
+def alerts_command(
+    config: Annotated[Path | None, typer.Option("--config")] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", help="Alerts to list. 0 for all.")
+    ] = 20,
+    match: Annotated[
+        str | None,
+        typer.Option("--match", help="Only alerts whose title contains this."),
+    ] = None,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+) -> None:
+    """List the alerts waiting in the configured source, with their ids.
+
+    Every other command that acts on one alert -- trace, context -- needs its
+    identifier, and identifiers are normalized from whatever the sensor
+    called it, so they cannot be read straight out of the source file. An
+    operator should not have to reimplement an adapter at the shell to find
+    one, and a queue of alerts is worth seeing whole in any case.
+
+    Titles are grouped first because that is the shape of the decision: a
+    capture of ordinary traffic is mostly one or two repeating signatures,
+    and which kind to investigate matters more than which instance.
+    """
+    settings = load_config(config)
+    with ExitStack() as resources:
+        alerts = list(source_for(settings, resources).poll())
+
+    if match is not None:
+        needle = match.lower()
+        alerts = [
+            alert for alert in alerts if needle in alert.title.lower()
+        ]
+
+    if as_json:
+        typer.echo(
+            json.dumps(
+                [
+                    {
+                        "alert_id": alert.alert_id,
+                        "source": alert.source,
+                        "timestamp": alert.timestamp.isoformat(),
+                        "title": alert.title,
+                        "src_ip": None if alert.src_ip is None else str(alert.src_ip),
+                        "dst_ip": None if alert.dst_ip is None else str(alert.dst_ip),
+                        "host": alert.host,
+                    }
+                    for alert in alerts
+                ],
+                indent=2,
+            )
+        )
+        return
+
+    if not alerts:
+        typer.echo(
+            "No alerts in the configured source"
+            + (f" matching {match!r}" if match else "")
+            + f" ({settings.runtime.alert_adapter})."
+        )
+        return
+
+    counts = Counter(alert.title for alert in alerts)
+    typer.echo(f"{len(alerts)} alert(s) by title:\n")
+    for title, count in counts.most_common():
+        typer.echo(f"  {count:>5}  {title}")
+
+    shown = alerts if limit <= 0 else alerts[:limit]
+    typer.echo(f"\nidentifiers for --alert-id ({len(shown)} of {len(alerts)}):\n")
+    for alert in shown:
+        endpoints = " -> ".join(
+            str(value) for value in (alert.src_ip, alert.dst_ip) if value
+        )
+        typer.echo(f"  {alert.alert_id}")
+        typer.echo(
+            f"      {alert.title}"
+            + (f"  [{endpoints}]" if endpoints else "")
+        )
+        typer.echo(f"      {alert.timestamp.isoformat()}")
+    if len(shown) < len(alerts):
+        typer.echo(
+            f"\n{len(alerts) - len(shown)} more. Use --limit 0, or narrow "
+            "with --match."
+        )
+
 
 @app.command("preflight")
 def preflight_command(

@@ -35,6 +35,11 @@ import sys
 # Below this the arithmetic is satisfiable but meaningless: a handful of
 # buckets makes every value both the history and the anomaly.
 MIN_USEFUL_BUCKETS = 40
+# ForecastSettings.bucket_seconds is Field(ge=60). Deriving a bucket without
+# that floor produced a config the application refused to load, which is a
+# worse failure than refusing to suggest one -- so the floor is honoured
+# here and the result is validated before it is written.
+MIN_BUCKET_SECONDS = 60
 
 
 def spans(path: Path) -> tuple[float, float, int]:
@@ -100,28 +105,35 @@ def main() -> int:
         f"this capture spans {span / 86400:.4f} days  -> not eligible"
     )
 
-    # The forecaster needs min_observations buckets, and the span must cover
-    # min_span_fraction of history_buckets * bucket_seconds. Pick the bucket
-    # so the capture fills the whole history window exactly.
-    history = max(args.min_observations, MIN_USEFUL_BUCKETS)
-    bucket = max(1, int(span // history))
-    horizon = max(1, history // 10)
-    period = max(2, history // 4)
+    # Use the smallest permitted bucket, which yields the most buckets from a
+    # short capture, then let the history window cover exactly what there is.
+    bucket = MIN_BUCKET_SECONDS
     usable = int(span // bucket)
 
+    if usable < MIN_USEFUL_BUCKETS:
+        needed = MIN_USEFUL_BUCKETS * bucket
+        print(
+            f"\nRefusing to suggest a window: at the {bucket}s minimum bucket "
+            f"this capture yields {usable} buckets, and {MIN_USEFUL_BUCKETS} "
+            "are needed before history and anomaly are distinguishable.\n"
+            f"Capture for at least {needed / 60:.0f} minutes."
+        )
+        return 1
+
+    history = usable
+    horizon = max(1, usable // 8)
+    period = max(2, usable // 4)
+    observations = max(2, min(args.min_observations, usable // 2))
+
     print("\nA window this capture does satisfy:")
-    print(f"  bucket_seconds    {bucket}")
+    print(f"  bucket_seconds    {bucket}   (the configured minimum)")
     print(f"  history_buckets   {history}")
     print(f"  horizon_buckets   {horizon}   (the window scored for deviation)")
     print(f"  period_buckets    {period}")
-    print(f"  -> about {usable} buckets of data")
-
-    if usable < MIN_USEFUL_BUCKETS:
-        print(
-            f"\nRefusing to suggest these: {usable} buckets is too few to "
-            "distinguish history from anomaly. Capture for longer."
-        )
-        return 1
+    print(f"  min_observations  {observations}")
+    print(
+        f"  -> {history - horizon} buckets of history before the scored window"
+    )
 
     print(
         "\nWhat this demonstrates: the forecaster runs on your own packets,\n"
@@ -150,12 +162,24 @@ def main() -> int:
             f"  history_buckets: {history}\n"
             f"  horizon_buckets: {horizon}\n"
             f"  period_buckets: {period}\n"
-            f"  min_observations: {min(args.min_observations, usable // 2)}\n"
+            f"  min_observations: {observations}\n"
             "  min_span_fraction: 0.5\n"
             "  baseline_started_at: null\n",
             encoding="utf-8",
         )
-        print(f"\nWrote {args.write_overlay}")
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+            from network_dork.config import load_config
+
+            load_config(args.write_overlay)
+        except Exception as exc:  # noqa: BLE001 - report whatever it refused
+            args.write_overlay.unlink(missing_ok=True)
+            print(
+                f"\nThe application refused the derived overlay, so it was "
+                f"not kept:\n  {type(exc).__name__}: {exc}"
+            )
+            return 1
+        print(f"\nWrote and validated {args.write_overlay}")
     return 0
 
 

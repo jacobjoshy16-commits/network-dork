@@ -18,8 +18,17 @@ zeek -r real.pcap LogAscii::use_json=T        # JSON is required
 grep -c '"event_type":"alert"' eve.json
 ```
 
-Real Suricata alerts from real ET Open rules, real Zeek telemetry. Investigate
-them:
+Real Suricata alerts from real ET Open rules, real Zeek telemetry. See what
+the sensor found, and get the identifiers the other commands need:
+
+```sh
+cd ~/network-dork
+NETWORK_DORK_ALERT_ADAPTER=suricata_eve \
+NETWORK_DORK_ALERTS_PATH=var/real/eve.json \
+uv run python -m network_dork alerts
+```
+
+Then investigate them:
 
 ```sh
 cd ~/network-dork

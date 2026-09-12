@@ -269,6 +269,22 @@ Important knobs:
 - `NETWORK_DORK_TELEMETRY_USERNAME` / `NETWORK_DORK_TELEMETRY_PASSWORD`
 - `NETWORK_DORK_REPORT_USERNAME` / `NETWORK_DORK_REPORT_PASSWORD`
 
+### Seeing the alert queue
+
+Commands that act on one alert need its identifier, and identifiers are
+normalized from whatever the sensor called it -- a Suricata identifier is
+built from the flow id, signature id and line number, and appears nowhere in
+`eve.json`:
+
+```sh
+python -m network_dork alerts                    # grouped by title, then ids
+python -m network_dork alerts --match beacon     # narrow by title
+python -m network_dork alerts --json             # for a script or a ticket
+```
+
+It reads whichever alert source is configured, so the same command works
+against file fixtures, Suricata EVE, Zeek notices, or OpenSearch.
+
 ### Seeing what is actually in effect
 
 Settings come from `config/default.yaml`, an optional override file, and
