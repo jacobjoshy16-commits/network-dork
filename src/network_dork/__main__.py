@@ -698,7 +698,7 @@ def trace_command(
 def readiness_command(
     config: Annotated[Path | None, typer.Option("--config")] = None,
     limit: Annotated[
-        int, typer.Option("--limit", help="Hosts to list.")
+        int, typer.Option("--limit", help="Hosts to list. 0 for all.")
     ] = 20,
     as_of: Annotated[
         str | None,
@@ -780,14 +780,26 @@ def readiness_command(
         (item for item in report.values() if not item.ready),
         key=lambda item: -item.span_seconds,
     )
+    # Rounded to whole days, a 44-minute demo window printed as "0 day
+    # window", which reads as a bug rather than as a short window.
+    window_seconds = forecast.history_buckets * forecast.bucket_seconds
+    if window_seconds >= 86400:
+        window_label = f"{window_seconds / 86400:.0f} day"
+    elif window_seconds >= 3600:
+        window_label = f"{window_seconds / 3600:.1f} hour"
+    else:
+        window_label = f"{window_seconds / 60:.0f} minute"
     typer.echo(
         f"\n{len(ready)} of {len(report)} hosts have enough history "
-        f"({forecast.history_buckets * forecast.bucket_seconds / 86400:.0f} "
-        "day window)"
+        f"({window_label} window)"
     )
-    for item in ready[:limit]:
+    # 0 means all, as it does for `alerts`; a slice of [:0] printed the
+    # header and not one host, which reads as a broken command.
+    ready = ready if limit <= 0 else ready[:limit]
+    waiting = waiting if limit <= 0 else waiting[:limit]
+    for item in ready:
         typer.echo(f"  READY    {item.entity:<20} {item.span_days:.1f} days")
-    for item in waiting[:limit]:
+    for item in waiting:
         typer.echo(f"  WAITING  {item.entity:<20} {item.reason()}")
 
 

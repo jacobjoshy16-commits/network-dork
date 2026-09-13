@@ -157,3 +157,41 @@ def test_the_gate_is_evaluated_against_the_alert_not_the_clock(tmp_path):
     early = alert(when=started + timedelta(days=2))
     reason = build(tmp_path, started).gather(early).unavailable["forecast"]
     assert "Baseline period is still in progress" in reason
+
+
+def test_a_short_window_is_not_described_as_zero_days():
+    """A 44-minute demo window rounded to "0 day window", which reads as a
+    bug rather than as a short window."""
+    from typer.testing import CliRunner
+
+    from network_dork.__main__ import app
+
+    result = CliRunner().invoke(
+        app,
+        ["readiness", "--config", "config/default.yaml",
+         "--as-of", "2025-01-15T12:00:00Z"],
+        env={
+            "NETWORK_DORK_FORECAST_BUCKET_SECONDS": "60",
+            "NETWORK_DORK_FORECAST_HISTORY_BUCKETS": "44",
+        },
+    )
+
+    assert result.exit_code == 0
+    assert "0 day window" not in result.stdout
+    assert "44 minute window" in result.stdout
+
+
+def test_readiness_limit_zero_lists_every_host():
+    """[:0] printed the header and not one host."""
+    from typer.testing import CliRunner
+
+    from network_dork.__main__ import app
+
+    result = CliRunner().invoke(
+        app,
+        ["readiness", "--config", "config/default.yaml",
+         "--as-of", "2025-01-15T12:00:00Z", "--limit", "0"],
+    )
+
+    assert result.exit_code == 0
+    assert "10.77.0.1" in result.stdout

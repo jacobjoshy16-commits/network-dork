@@ -258,7 +258,18 @@ class ForecastEnrichingContextProvider:
             return self._merge(base, [], reason)
 
         if len(skipped) == len(self.metrics):
+            # Each metric raised InsufficientHistory carrying the numbers
+            # that failed -- how many observations were found against how
+            # many were required. Collapsing that to one sentence recorded
+            # the detail to the audit log and showed the operator nothing,
+            # so the same question ("why not?") had to be answered by
+            # reading source. Name one, and say how many agreed.
+            detail = skipped[0].split(": ", 1)[-1] if skipped else ""
             reason = "No metric had enough history to forecast"
+            if detail:
+                others = len(skipped) - 1
+                reason += f" ({detail}"
+                reason += f"; same for {others} other metric(s))" if others else ")"
             self._record(
                 alert,
                 operation_id,
