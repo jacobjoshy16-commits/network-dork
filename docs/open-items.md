@@ -244,6 +244,28 @@ narrow on purpose -- "deviation" and "expected" are ordinary words in a
 security summary, so only forecast terms and an explicit predicted band
 count.
 
+### ~~Failure paths recorded the reason and showed none of it~~ — fixed
+
+Found by trying to diagnose a real run rather than by reading the code.
+Forecast enrichment produced nothing on a live capture and said only "No
+metric had enough history to forecast". Two different runs turned out to
+have two different causes, and the message was the same for both:
+
+* the earlier alert genuinely had thin history — 14 minutes of a 49-minute
+  window against a 24-minute requirement — but the text rendered it as
+  "0.0 days of a 0.0-day window", naming the failing gate while hiding both
+  numbers;
+* the later alert had **enough** history. All four metrics failed with
+  `ForecastServiceError` because the sidecar was unreachable, and the
+  aggregate reason still blamed history.
+
+Per-metric detail was being written to the audit log and discarded from
+what an operator reads, and the generic `except Exception` kept only the
+class name. Durations now pick a legible unit, exception messages survive,
+and a forecaster outage reports as an outage rather than as thin history.
+`scripts/why_no_forecast.py` reads the reasons out of an audit log for runs
+that already happened.
+
 ### Grounding does not stop prompt injection
 
 Text injected into an alert becomes supplied evidence, so an IP named there

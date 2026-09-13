@@ -798,3 +798,21 @@ def test_the_preflight_known_answer_series_is_actually_predictable():
             prediction.lower, prediction.median, prediction.upper
         )
     )
+
+
+def test_an_unreachable_forecaster_is_not_reported_as_thin_history(tmp_path):
+    """Observed on a real capture: four metrics recorded
+    "ForecastServiceError" while the operator-facing reason said "no metric
+    had enough history to forecast". The history gate had passed; the
+    sidecar was down. Those are different problems, and one message for both
+    sent the reader to look at the wrong one."""
+    provider = build_provider(
+        tmp_path, SeriesProvider(daily_series(4)), BrokenForecaster()
+    )
+
+    reason = provider.gather(alert()).unavailable["forecast"]
+
+    assert "could not be reached or failed" in reason
+    assert "enough history" not in reason
+    # And the exception's own message survives, not just its class name.
+    assert "unreachable" in reason

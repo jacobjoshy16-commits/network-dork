@@ -239,8 +239,17 @@ class ForecastEnrichingContextProvider:
             except InsufficientHistory as exc:
                 skipped.append(f"{metric}: {exc}")
             except Exception as exc:
-                # A forecaster outage must not fail the investigation.
-                skipped.append(f"{metric}: {type(exc).__name__}")
+                # A forecaster outage must not fail the investigation, but
+                # recording only the class name made a dead sidecar
+                # indistinguishable from thin history: four metrics reported
+                # "ForecastServiceError" while the aggregate reason said
+                # "no metric had enough history", which was not the reason
+                # at all. Keep what the exception said.
+                detail = str(exc).strip()
+                skipped.append(
+                    f"{metric}: {type(exc).__name__}"
+                    + (f": {detail}" if detail else "")
+                )
 
         if not evidence and len(skipped) < len(self.metrics):
             reason = (
@@ -258,6 +267,29 @@ class ForecastEnrichingContextProvider:
             return self._merge(base, [], reason)
 
         if len(skipped) == len(self.metrics):
+            # Every metric failed, but not necessarily for the same reason.
+            # A reachable forecaster with thin history and an unreachable
+            # one are different problems and used to print the same
+            # sentence, sending the reader to look at the wrong thing.
+            if not any("InsufficientHistory" in entry or "observations" in entry
+                       or "span" in entry for entry in skipped):
+                detail = skipped[0].split(": ", 1)[-1] if skipped else ""
+                reason = "The forecaster could not be reached or failed"
+                if detail:
+                    reason += f" ({detail})"
+                self._record(
+                    alert,
+                    operation_id,
+                    "error",
+                    {
+                        **parameters,
+                        "available": False,
+                        "reason": reason,
+                        "skipped": skipped,
+                    },
+                )
+                return self._merge(base, [], reason)
+
             # Each metric raised InsufficientHistory carrying the numbers
             # that failed -- how many observations were found against how
             # many were required. Collapsing that to one sentence recorded

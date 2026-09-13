@@ -22,6 +22,15 @@ from pathlib import Path
 from typing import Any, Callable
 
 from network_dork.anomaly import InsufficientHistory
+
+
+def _duration(seconds: float) -> str:
+    """Seconds in whichever unit keeps the number legible."""
+    if seconds >= 86400:
+        return f"{seconds / 86400:.1f} days"
+    if seconds >= 3600:
+        return f"{seconds / 3600:.1f} hours"
+    return f"{seconds / 60:.0f} minutes"
 from network_dork.models import TimeSeries
 from network_dork.regularity import rolling_regularity
 
@@ -355,10 +364,14 @@ class ZeekBucketTimeSeriesProvider:
             else 0
         )
         if span < window * self.min_span_fraction:
+            # Rendered in days, a 49-minute window read "0.0 days of a
+            # 0.0-day window", which names the failing gate and hides both
+            # numbers that would explain it.
             raise InsufficientHistory(
                 f"{entity}/{metric} observations span "
-                f"{span / 86400:.1f} days of a {window / 86400:.1f}-day "
-                "window; the remainder would be zero-filled"
+                f"{_duration(span)} of a {_duration(window)} window and "
+                f"{_duration(window * self.min_span_fraction)} is required; "
+                "the remainder would be zero-filled"
             )
 
         return TimeSeries(
