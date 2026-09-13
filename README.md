@@ -262,6 +262,8 @@ Important knobs:
 
 - `NETWORK_DORK_OLLAMA_BASE_URL`
 - `NETWORK_DORK_MODEL`
+- `NETWORK_DORK_ALERTS_PATH` — read by every file-based alert source,
+  whichever sensor produced them
 - `NETWORK_DORK_ALERT_ADAPTER`
 - `NETWORK_DORK_CONTEXT_ADAPTER`
 - `NETWORK_DORK_LLM_ADAPTER`

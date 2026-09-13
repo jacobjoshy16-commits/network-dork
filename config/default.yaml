@@ -76,14 +76,21 @@ adapters:
       class_path: network_dork.adapters.alerts.file:FileAlertSource
       options:
         path: "${alerts.path}"
+    # Every file-based alert source reads alerts.path, so one setting and one
+    # environment variable point the tool at your alerts whichever sensor
+    # produced them. These used to hardcode the bundled samples, which meant
+    # NETWORK_DORK_ALERTS_PATH silently did nothing here: pointing the tool
+    # at a real eve.json returned the fixtures instead, with no error.
+    # To read a bundled sample, name it:
+    #   NETWORK_DORK_ALERTS_PATH=fixtures/source_samples/suricata/eve.json
     suricata_eve:
       class_path: network_dork.adapters.alerts.suricata_eve:SuricataEveAlertSource
       options:
-        path: fixtures/source_samples/suricata/eve.json
+        path: "${alerts.path}"
     zeek_notice:
       class_path: network_dork.adapters.alerts.zeek_notice:ZeekNoticeAlertSource
       options:
-        path: fixtures/source_samples/zeek/notice.log
+        path: "${alerts.path}"
     opensearch:
       class_path: network_dork.adapters.alerts.opensearch:OpenSearchAlertSource
       options:

@@ -55,6 +55,26 @@ re-verify.
 There is no `ruff` or `mypy` step. The code is annotated throughout but
 nothing enforces it.
 
+### ~~NETWORK_DORK_ALERTS_PATH did nothing for two adapters~~ — fixed
+
+`suricata_eve` and `zeek_notice` hardcoded the bundled sample files in
+`config/default.yaml`, while only the `file` adapter interpolated
+`${alerts.path}`. So the README's "important knob" for saying where alerts
+come from was ignored by half the alert sources: pointing the tool at a real
+271,000-event `eve.json` returned two fixture alerts from January 2025, with
+no error and nothing to indicate the path had been dropped.
+
+Every file-based alert source now reads `alerts.path`, and
+`tests/test_alerts_cli.py` asserts both that none of them names a file and
+that the CLI reads the path it is given. Bundled samples are still reachable
+by naming one:
+`NETWORK_DORK_ALERTS_PATH=fixtures/source_samples/suricata/eve.json`.
+
+**Worth noting for anything else configured this way:** the bug was
+invisible because the wrong data was plausible. Silently substituting
+fixtures is a worse failure than crashing, and nothing in the test suite
+covered the interpolation of adapter options against real settings.
+
 ## Scale
 
 ### Log scanning is linear per alert

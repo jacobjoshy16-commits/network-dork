@@ -114,3 +114,57 @@ def test_readiness_rejects_an_unparseable_as_of():
 
     assert result.exit_code != 0
     assert "ISO-8601" in result.output
+
+
+def test_no_file_alert_adapter_hardcodes_a_path():
+    """NETWORK_DORK_ALERTS_PATH is documented as the knob that says where
+    alerts come from, and suricata_eve and zeek_notice used to hardcode the
+    bundled samples instead. Pointing the tool at a real eve.json therefore
+    returned two fixture alerts from January 2025, with no error and nothing
+    to suggest the path had been ignored.
+
+    Interpolation happens when an adapter is built, so at this layer the
+    check is that each one defers to the setting rather than naming a file.
+    """
+    from network_dork.config import load_config
+
+    settings = load_config(None)
+    for name in ("file", "suricata_eve", "zeek_notice"):
+        path = settings.adapters["alerts"][name].options["path"]
+        assert path == "${alerts.path}", f"{name} hardcodes {path!r}"
+
+
+def test_alerts_reads_the_path_it_is_pointed_at(tmp_path):
+    """The end-to-end version of the above, through the CLI."""
+    eve = tmp_path / "eve.json"
+    eve.write_text(
+        json.dumps(
+            {
+                "event_type": "alert",
+                "flow_id": 7,
+                "timestamp": "2026-09-11T19:13:13.503356-0500",
+                "src_ip": "10.1.2.3",
+                "dest_ip": "203.0.113.9",
+                "alert": {
+                    "signature": "ET INFO from the real capture",
+                    "signature_id": 2071408,
+                    "category": "Not Suspicious Traffic",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = invoke(
+        ["alerts", *CONFIG],
+        env={
+            "NETWORK_DORK_ALERT_ADAPTER": "suricata_eve",
+            "NETWORK_DORK_ALERTS_PATH": str(eve),
+        },
+    )
+
+    assert result.exit_code == 0
+    assert "ET INFO from the real capture" in result.stdout
+    # Not the bundled sample, which is what used to come back.
+    assert "10.10.1.5" not in result.stdout
