@@ -72,7 +72,10 @@ def test_config_fails_loudly_on_an_unloadable_configuration(tmp_path):
     result = invoke(["config", "--config", str(broken)])
 
     assert result.exit_code == 1
-    assert "not loadable" in result.stdout + result.stderr
+    # result.output carries both streams under click's default mixed
+    # capture; result.stderr is only separate on click 8.2+, which typer
+    # 0.15.2 cannot use (see test_every_command_can_print_its_help).
+    assert "not loadable" in result.output
 
 
 def test_config_env_lists_the_variable_for_each_setting():

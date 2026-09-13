@@ -18,8 +18,25 @@ zeek -r real.pcap LogAscii::use_json=T        # JSON is required
 grep -c '"event_type":"alert"' eve.json
 ```
 
-Real Suricata alerts from real ET Open rules, real Zeek telemetry. See what
-the sensor found, and get the identifiers the other commands need:
+Real Suricata alerts from real ET Open rules, real Zeek telemetry.
+
+Save the settings to a file rather than exporting them per terminal --
+a restored or reopened terminal loses exports, and silently falls back to the
+fixture corpus, which looks like the tool ignoring your capture:
+
+```sh
+cd ~/network-dork
+cat > var/real/env.sh <<'ENV'
+export NETWORK_DORK_ALERT_ADAPTER=suricata_eve
+export NETWORK_DORK_ALERTS_PATH=var/real/eve.json
+export NETWORK_DORK_ZEEK_DIRECTORY=var/real
+export NETWORK_DORK_TIMEOUT_SECONDS=600
+ENV
+source var/real/env.sh
+```
+
+Then see what the sensor found, and get the identifiers the other commands
+need:
 
 ```sh
 cd ~/network-dork
@@ -64,10 +81,12 @@ there are too few buckets to separate history from anomaly. Then:
 ```sh
 make timesfm-local          # in another terminal, if you want TimesFM
 
+# readiness assesses the window ending NOW, so a stored capture reports no
+# hosts however much history it holds. Point it at a time the capture covers:
 NETWORK_DORK_ZEEK_DIRECTORY=var/real \
-NETWORK_DORK_FORECAST_ADAPTER=enrichment \
-NETWORK_DORK_FORECASTER_ADAPTER=timesfm \
-uv run python -m network_dork readiness --config config/demo-short-window.yaml
+uv run python -m network_dork readiness \
+    --config config/demo-short-window.yaml \
+    --as-of "$(date -u -r "$(stat -f %m var/real/real.pcap)" +%Y-%m-%dT%H:%M:%SZ)"
 
 NETWORK_DORK_ALERT_ADAPTER=suricata_eve \
 NETWORK_DORK_ALERTS_PATH=var/real/eve.json \

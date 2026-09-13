@@ -36,6 +36,20 @@ build, a vulnerability scan, and provenance attestation.
 dependency set is five pure-Python packages, so this is small — until the
 TimesFM sidecar is deployed, which adds torch.
 
+### typer is pinned in place by an old click
+
+`typer==0.15.2` calls click's `Parameter.make_metavar()` without a `ctx`
+argument, which click 8.2 made required. A transitive click bump to 8.5
+therefore broke `--help` on **every** command in the CLI at once, and no test
+noticed until someone tried to read the help. `pyproject.toml` now pins
+`click==8.1.8` and `tests/test_alerts_cli.py` asserts help renders for every
+command.
+
+That is a hold, not a fix. Current typer (0.27) has dropped its click
+dependency entirely, so the real repair is a typer bump -- deferred because
+it spans a dozen minor versions and this CLI has fourteen commands to
+re-verify.
+
 ### No linting or type checking in CI
 
 There is no `ruff` or `mypy` step. The code is annotated throughout but
@@ -139,6 +153,14 @@ Nine hosts, three campaigns, three benign confounders, generated from a seed.
 It was written to be realistic, and it has already been wrong once — the
 first version did not model beaconing at all. The numbers justify design
 decisions; they do not predict field performance.
+
+### ~~readiness could not assess a stored capture~~ — fixed
+
+`readiness` measured the window ending at `datetime.now()`, which is the
+right question for live telemetry and unanswerable for a pcap taken last
+week: none of its history lands in the window, so it reported no hosts
+however much it held. `--as-of` moves the end of the window. `trace` never
+needed it -- it uses the alert's own timestamp.
 
 ### `min_observations` and `min_span_fraction` are judgement, not measurement
 

@@ -79,3 +79,38 @@ def test_no_matches_says_so_rather_than_printing_an_empty_table():
     assert result.exit_code == 0
     assert "No alerts in the configured source" in result.stdout
     assert "no-such-signature" in result.stdout
+
+
+def test_every_command_can_print_its_help():
+    """typer 0.15.2 calls click's Parameter.make_metavar() without a ctx,
+    which click 8.2 made required, so a transitive click bump broke --help on
+    every command at once and nothing noticed. pyproject pins click below
+    that; this fails if the pin is lost."""
+    listed = invoke(["--help"])
+    assert listed.exit_code == 0
+
+    names = [
+        "adapters", "alerts", "preflight", "trace", "readiness",
+        "verify-audit", "agent", "context", "config", "config-env",
+        "eval-reports", "eval", "run", "demo",
+    ]
+    for name in names:
+        result = invoke([name, "--help"])
+        assert result.exit_code == 0, f"{name} --help: {result.output}"
+
+
+def test_readiness_can_assess_a_window_it_is_pointed_at():
+    """Without --as-of the window ends now, so a stored capture reports no
+    hosts however much history it holds -- none of it lands in the window."""
+    result = invoke(["readiness", *CONFIG, "--as-of", "2025-01-15T12:00:00Z"])
+
+    assert result.exit_code == 0
+    assert "hosts have enough history" in result.stdout
+    assert "10.77.0.1" in result.stdout
+
+
+def test_readiness_rejects_an_unparseable_as_of():
+    result = invoke(["readiness", *CONFIG, "--as-of", "last tuesday"])
+
+    assert result.exit_code != 0
+    assert "ISO-8601" in result.output

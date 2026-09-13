@@ -689,6 +689,13 @@ def readiness_command(
     limit: Annotated[
         int, typer.Option("--limit", help="Hosts to list.")
     ] = 20,
+    as_of: Annotated[
+        str | None,
+        typer.Option(
+            "--as-of",
+            help="ISO-8601 time to end the window at, instead of now.",
+        ),
+    ] = None,
 ) -> None:
     """Show which hosts have enough history for forecast enrichment.
 
@@ -696,6 +703,13 @@ def readiness_command(
     rhythm to be visible. Nothing is being trained while you wait: the
     forecasters do not learn, and TimesFM is frozen and zero-shot. The wait
     is for telemetry to accumulate.
+
+    The window ends now by default, which is the right question for live
+    telemetry and the wrong one for a capture taken last week: a historical
+    pcap reports no hosts however much history it holds, because none of it
+    lands in the window. --as-of moves the end of the window, so a stored
+    capture can be assessed at a time it actually covers. `trace` needs no
+    such option -- it uses the alert's own timestamp.
     """
     settings = load_config(config)
     forecast = settings.forecast
@@ -712,8 +726,19 @@ def readiness_command(
             raise typer.BadParameter(
                 f"{settings.runtime.timeseries_adapter} cannot report coverage"
             )
+        if as_of is None:
+            reference = datetime.now(timezone.utc)
+        else:
+            try:
+                reference = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise typer.BadParameter(
+                    f"--as-of must be an ISO-8601 time: {exc}"
+                ) from exc
+            if reference.tzinfo is None:
+                reference = reference.replace(tzinfo=timezone.utc)
         report = coverage(
-            end=datetime.now(timezone.utc),
+            end=reference,
             buckets=forecast.history_buckets + forecast.horizon_buckets,
             bucket_seconds=forecast.bucket_seconds,
         )
