@@ -130,3 +130,77 @@ def test_query_does_not_start_when_audit_is_unavailable():
     )
     with pytest.raises(OSError, match="audit unavailable"):
         context.gather(corpus()[0])
+
+
+def test_prior_alerts_are_counted_from_a_non_jsonl_alert_source(tmp_path):
+    """The count was read by parsing alerts.path as normalized Alert JSONL,
+    so once every alert adapter honoured that setting, a Suricata eve.json
+    raised ValidationError on line one and prior_alerts came back
+    unavailable. The provider is given the configured AlertSource instead,
+    which knows its own format."""
+    from network_dork.adapters.alerts.suricata_eve import SuricataEveAlertSource
+    from network_dork.adapters.context.zeek_logs import ZeekLogsContextProvider
+    from network_dork.audit import JsonlAuditLog
+
+    eve = tmp_path / "eve.json"
+    eve.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "event_type": "alert",
+                    "flow_id": index,
+                    "timestamp": stamp,
+                    "src_ip": "10.77.0.1",
+                    "dest_ip": "192.0.2.1",
+                    "alert": {
+                        "signature": f"ET INFO alert {index}",
+                        "signature_id": 100 + index,
+                        "category": "Misc",
+                    },
+                }
+            )
+            for index, stamp in enumerate(
+                (
+                    "2025-01-15T11:30:00+00:00",
+                    "2025-01-15T11:45:00+00:00",
+                    "2025-01-15T12:00:00+00:00",
+                ),
+                start=1,
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    source = SuricataEveAlertSource(path=eve)
+    subject = [a for a in source.poll() if a.alert_id.endswith(":3")][0]
+
+    provider = ZeekLogsContextProvider(
+        directory="fixtures/zeek",
+        prior_alerts_path=eve,
+        audit=JsonlAuditLog(tmp_path / "audit.jsonl"),
+        prior_alert_source=SuricataEveAlertSource(path=eve),
+    )
+    context = provider.gather(subject)
+
+    assert context.prior_alert_count == 2
+    assert "prior_alerts" not in context.unavailable
+
+
+def test_prior_alerts_still_read_jsonl_when_given_no_source(tmp_path):
+    """A provider constructed with only a path keeps working."""
+    from network_dork.adapters.context.zeek_logs import ZeekLogsContextProvider
+    from network_dork.audit import JsonlAuditLog
+
+    provider = ZeekLogsContextProvider(
+        directory="fixtures/zeek",
+        prior_alerts_path="fixtures/alerts/alerts.jsonl",
+        audit=JsonlAuditLog(tmp_path / "audit.jsonl"),
+    )
+    alerts = {
+        alert.alert_id: alert
+        for alert in FileAlertSource(path="fixtures/alerts/alerts.jsonl").poll()
+    }
+    context = provider.gather(alerts["syn-007"])
+
+    assert context.prior_alert_count is not None
+    assert "prior_alerts" not in context.unavailable

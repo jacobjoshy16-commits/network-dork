@@ -148,12 +148,23 @@ def context_for(
     settings: Settings,
     audit: JsonlAuditLog,
     resources: ExitStack,
+    alert_source: Any = None,
 ):
     inner = build_adapter(
         settings,
         "context",
         settings.runtime.context_adapter,
-        {"audit": audit},
+        # The prior-alert count reads the alert source, so hand the provider
+        # the configured adapter rather than a path whose format it would
+        # have to guess. Built here when the caller has not already.
+        {
+            "audit": audit,
+            "prior_alert_source": (
+                source_for(settings, resources)
+                if alert_source is None
+                else alert_source
+            ),
+        },
         resources,
     )
     if settings.runtime.forecast_adapter is None:

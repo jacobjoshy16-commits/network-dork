@@ -70,6 +70,13 @@ that the CLI reads the path it is given. Bundled samples are still reachable
 by naming one:
 `NETWORK_DORK_ALERTS_PATH=fixtures/source_samples/suricata/eve.json`.
 
+Fixing it surfaced a second one behind it. The prior-alert count was read by
+parsing `alerts.path` as normalized Alert JSONL, so once every adapter
+honoured that setting, a Suricata `eve.json` raised `ValidationError` on line
+one and `prior_alerts` came back unavailable. The provider is now handed the
+configured `AlertSource`, which knows its own format; a provider constructed
+with only a path still reads JSONL.
+
 **Worth noting for anything else configured this way:** the bug was
 invisible because the wrong data was plausible. Silently substituting
 fixtures is a worse failure than crashing, and nothing in the test suite

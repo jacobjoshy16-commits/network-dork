@@ -113,6 +113,7 @@ adapters:
       options:
         directory: "${context.zeek_directory}"
         prior_alerts_path: "${alerts.path}"
+        prior_alert_source: "${services.prior_alert_source}"
         window_days: "${context.window_days}"
         max_records: "${context.max_records}"
         audit: "${services.audit}"

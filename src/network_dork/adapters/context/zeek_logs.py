@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+from collections.abc import Iterable
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -29,6 +30,7 @@ class ZeekLogsContextProvider:
         directory: str | Path,
         prior_alerts_path: str | Path,
         audit: AuditLog,
+        prior_alert_source: Any = None,
         window_days: int = 7,
         max_records: int = 15,
     ) -> None:
@@ -38,10 +40,23 @@ class ZeekLogsContextProvider:
             raise ValueError("max_records must be positive")
         self.directory = Path(directory)
         self.prior_alerts_path = Path(prior_alerts_path)
+        # Counting prior alerts means reading the alert source, and this
+        # provider must not assume its format: alerts.path may hold
+        # normalized JSONL, a Suricata eve.json, or a Zeek notice log, and
+        # parsing eve.json as an Alert raises ValidationError on line one.
+        # Given the configured AlertSource, the format is its problem.
+        self.prior_alert_source = prior_alert_source
         self.audit = audit
         self.window_days = window_days
         self.max_records = max_records
         self._dropped: dict[str, int] = {}
+
+    def _alerts_from_path(self) -> Iterable[Alert]:
+        """Normalized-JSONL fallback for a provider given no alert source."""
+        with self.prior_alerts_path.open("r", encoding="utf-8") as stream:
+            for line in stream:
+                if line.strip():
+                    yield Alert.model_validate_json(line)
 
     def _record(
         self,
@@ -188,28 +203,26 @@ class ZeekLogsContextProvider:
         self._record(alert, operation_id, "attempt", parameters)
         matches: set[tuple[str, str]] = set()
         try:
-            with self.prior_alerts_path.open("r", encoding="utf-8") as stream:
-                for line in stream:
-                    if not line.strip():
-                        continue
-                    previous = Alert.model_validate_json(line)
-                    if previous.alert_id == alert.alert_id:
-                        continue
-                    if not start <= previous.timestamp < alert.timestamp:
-                        continue
-                    same_host = bool(
-                        alert.host and previous.host == alert.host
-                    )
-                    same_ip = bool(
-                        host_ip
-                        and host_ip
-                        in {
-                            str(previous.src_ip or ""),
-                            str(previous.dst_ip or ""),
-                        }
-                    )
-                    if same_host or same_ip:
-                        matches.add((previous.source, previous.alert_id))
+            if self.prior_alert_source is not None:
+                previous_alerts = self.prior_alert_source.poll()
+            else:
+                previous_alerts = self._alerts_from_path()
+            for previous in previous_alerts:
+                if previous.alert_id == alert.alert_id:
+                    continue
+                if not start <= previous.timestamp < alert.timestamp:
+                    continue
+                same_host = bool(alert.host and previous.host == alert.host)
+                same_ip = bool(
+                    host_ip
+                    and host_ip
+                    in {
+                        str(previous.src_ip or ""),
+                        str(previous.dst_ip or ""),
+                    }
+                )
+                if same_host or same_ip:
+                    matches.add((previous.source, previous.alert_id))
         except FileNotFoundError:
             reason = "Prior-alert source is unavailable"
             self._record(

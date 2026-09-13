@@ -142,11 +142,8 @@ def render_report(
     out.append(_wrap(report.suggested_next_step))
     out.append("")
     out.append("BASED ON")
-    if report.context_used:
-        for identifier in report.context_used:
-            out.append(f"  - {identifier}")
-    else:
-        out.append("  - (the model cited no specific evidence)")
+    for line in _cited(report.context_used):
+        out.append(line)
 
     if context is not None and context.unavailable:
         out.append("")
@@ -158,6 +155,40 @@ def render_report(
     out.append(f"model: {report.model_version}")
     out.append(RULE)
     return "\n".join(out)
+
+
+def _cited(identifiers: list[str]) -> list[str]:
+    """Summarize cited evidence by kind, with a sample of the identifiers.
+
+    On the fixture corpus a report cites six records and listing them is
+    informative. On a real capture it cited sixty -- fifty-nine lines of
+    "flows:conn.log:437" and one conclusion -- which is not something an
+    analyst reads, and it pushed the finding off the screen entirely.
+
+    The counts are what carries meaning ("thirty flows, thirty DNS answers");
+    the identifiers matter only for going back to the source, so a few are
+    enough to find the file and the neighbourhood.
+    """
+    if not identifiers:
+        return ["  - (the model cited no specific evidence)"]
+
+    grouped: dict[str, list[str]] = {}
+    for identifier in identifiers:
+        kind = identifier.split(":", 1)[0] if ":" in identifier else identifier
+        grouped.setdefault(kind, []).append(identifier)
+
+    lines: list[str] = []
+    for kind, members in grouped.items():
+        if len(members) == 1:
+            lines.append(f"  - {members[0]}")
+            continue
+        sample = ", ".join(members[:3])
+        remaining = len(members) - 3
+        lines.append(
+            f"  - {kind}: {len(members)} record(s)"
+            + (f"  [{sample}" + (f", +{remaining} more]" if remaining > 0 else "]"))
+        )
+    return lines
 
 
 def render_failure(failure: FailureRecord) -> str:
