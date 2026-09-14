@@ -621,11 +621,18 @@ def trace_command(
             typer.echo(f"  detail   {alert.description}")
 
         audit = JsonlAuditLog(settings.storage.audit_path, current_identity())
+        # The claim this tool makes is that triage takes seconds instead of
+        # the twenty to forty minutes an analyst spends opening one alert by
+        # hand. A claim about time should be measured by the thing making
+        # it, not estimated afterwards from a wall clock.
+        began = time.monotonic()
         context = context_for(settings, audit, resources).gather(alert)
+        gathered_in = time.monotonic() - began
 
         typer.echo(
             "\n=== 2. EVIDENCE GATHERED (read-only, from your telemetry) ==="
         )
+        typer.echo(f"  {gathered_in:.2f}s to query your telemetry")
         typer.echo(render_evidence(context))
 
         typer.echo(
@@ -660,12 +667,16 @@ def trace_command(
             typer.echo(json.dumps(json.loads(user), indent=2)[:4000])
 
         typer.echo("\n=== 5. WHAT THE MODEL ANSWERED ===")
+        asked = time.monotonic()
         try:
             raw = llm.complete(system, user)
         except Exception as exc:
             typer.echo(f"  model call failed: {type(exc).__name__}: {exc}")
             raise typer.Exit(code=1) from exc
-        typer.echo(f"  {len(raw):,} characters of JSON returned")
+        answered_in = time.monotonic() - asked
+        typer.echo(
+            f"  {answered_in:.1f}s, {len(raw):,} characters of JSON returned"
+        )
 
         typer.echo("\n=== 6. CHECKS (why an answer can be rejected) ===")
         try:
@@ -692,6 +703,13 @@ def trace_command(
 
         typer.echo("\n=== 7. WHAT AN ANALYST READS ===")
         typer.echo(render_report(report, context))
+
+        total = time.monotonic() - began
+        typer.echo(
+            f"\nalert to brief: {total:.1f}s "
+            f"({gathered_in:.2f}s gathering, {answered_in:.1f}s inference, "
+            f"{total - gathered_in - answered_in:.2f}s prompting and checking)"
+        )
 
 
 @app.command("readiness")

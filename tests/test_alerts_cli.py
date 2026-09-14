@@ -168,3 +168,18 @@ def test_alerts_reads_the_path_it_is_pointed_at(tmp_path):
     assert "ET INFO from the real capture" in result.stdout
     # Not the bundled sample, which is what used to come back.
     assert "10.10.1.5" not in result.stdout
+
+
+def test_trace_reports_how_long_the_investigation_took():
+    """The claim is that triage takes seconds rather than the twenty to
+    forty minutes an analyst spends opening one alert by hand. A claim about
+    time should be measured by the thing making it."""
+    result = invoke(
+        ["trace", "--alert-id", "syn-001", "--fake", *CONFIG]
+    )
+
+    assert result.exit_code == 0
+    assert "to query your telemetry" in result.stdout
+    assert "alert to brief:" in result.stdout
+    assert "gathering" in result.stdout
+    assert "inference" in result.stdout
