@@ -252,19 +252,23 @@ class ForecastEnrichingContextProvider:
                 )
 
         if not evidence and len(skipped) < len(self.metrics):
-            reason = (
-                "Traffic was forecastable and stayed within its predicted "
-                "range (no deviation reached this metric's evidence "
-                "threshold)"
+            # The forecaster ran. Nothing crossed a threshold. That is an
+            # answer, so it goes in `checked` rather than `unavailable`:
+            # putting it in the absence field made the brief say forecast
+            # was unavailable and the summary say the forecast showed the
+            # traffic was fine, which cannot both be true.
+            note = (
+                "Forecast ran for every metric and no deviation reached its "
+                "evidence threshold"
             )
             self._record(
                 alert,
                 operation_id,
                 "success",
                 {**parameters, "available": True, "result_count": 0,
-                 "reason": reason, "skipped": skipped},
+                 "reason": note, "skipped": skipped},
             )
-            return self._merge(base, [], reason)
+            return self._merge(base, [], None, checked_note=note)
 
         if len(skipped) == len(self.metrics):
             # Every metric failed, but not necessarily for the same reason.
@@ -333,10 +337,14 @@ class ForecastEnrichingContextProvider:
         base: AlertContext,
         evidence: list[EvidenceRecord],
         unavailable_reason: str | None,
+        checked_note: str | None = None,
     ) -> AlertContext:
         unavailable = dict(base.unavailable)
+        checked = dict(base.checked)
         if unavailable_reason is not None:
             unavailable["forecast"] = unavailable_reason
+        if checked_note is not None:
+            checked["forecast"] = checked_note
         # Rebuilt rather than copied so the context validators run again.
         return AlertContext(
             alert=base.alert,
@@ -348,5 +356,6 @@ class ForecastEnrichingContextProvider:
             forecast=evidence,
             prior_alert_count=base.prior_alert_count,
             unavailable=unavailable,
+            checked=checked,
             truncated=base.truncated,
         )

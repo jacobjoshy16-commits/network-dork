@@ -266,6 +266,26 @@ and a forecaster outage reports as an outage rather than as thin history.
 `scripts/why_no_forecast.py` reads the reasons out of an audit log for runs
 that already happened.
 
+### ~~"Could not look" and "looked, found nothing" were the same field~~ — fixed
+
+Found on the first real capture where the forecaster actually produced
+something. TimesFM ran for all four metrics and nothing crossed a threshold,
+which the enrichment provider reported through `unavailable["forecast"]` --
+the same channel as a dead sidecar or thin history. The brief then read:
+
+    NOT AVAILABLE
+      - forecast: Traffic was forecastable and stayed within its predicted range
+
+and the model, reading that back out, wrote *"the traffic is within the
+expected range as per the forecast evidence"* about evidence it had never
+been given. Not a hallucination: it paraphrased a finding that had been
+filed under absence.
+
+`AlertContext` now carries `checked` alongside `unavailable`, a validator
+refuses a kind in both, the renderer shows them as separate sections, and
+`CORE_RULES` states that an unavailable kind must never be described as
+having been examined and found clean.
+
 ### Grounding does not stop prompt injection
 
 Text injected into an alert becomes supplied evidence, so an IP named there

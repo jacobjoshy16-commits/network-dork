@@ -117,6 +117,12 @@ ranges, or expected ranges at all. Saying traffic was "within the expected
 range" when nothing predicted a range is a claim about evidence you do not
 have.
 
+supplied_context separates two things that are not the same. `unavailable`
+means that evidence could not be obtained, so nothing is known about it.
+`checked` means it was obtained and held nothing noteworthy, which is a
+finding you may rely on. Never describe an unavailable kind as though it had
+been examined and found clean.
+
 If supplied_context reports truncated evidence, say so: you are seeing a
 subset, and absence of evidence in a truncated view is not evidence of
 absence.

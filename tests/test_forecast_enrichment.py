@@ -816,3 +816,40 @@ def test_an_unreachable_forecaster_is_not_reported_as_thin_history(tmp_path):
     assert "enough history" not in reason
     # And the exception's own message survives, not just its class name.
     assert "unreachable" in reason
+
+
+def test_a_clean_forecast_is_a_result_not_a_gap(tmp_path):
+    """Observed on the real capture: the forecaster ran for all four metrics
+    and nothing crossed a threshold, which was reported through
+    `unavailable`. The brief then said forecast was unavailable while the
+    summary said "within the expected range as per the forecast evidence" --
+    both from the same field, and not both true."""
+    provider = build_provider(
+        tmp_path,
+        SeriesProvider(daily_series(4)),
+        SeasonalNaiveForecaster(period_buckets=PERIOD),
+        min_score=10_000.0,
+    )
+
+    context = provider.gather(alert())
+
+    assert context.forecast == []
+    assert "forecast" not in context.unavailable
+    assert "no deviation reached" in context.checked["forecast"]
+
+
+def test_a_kind_cannot_be_both_checked_and_unavailable():
+    from network_dork.models import AlertContext
+
+    with pytest.raises(ValueError, match="both checked and unavailable"):
+        AlertContext(
+            alert=alert(),
+            window_start=ALERT_TIME - timedelta(days=7),
+            window_end=ALERT_TIME,
+            flows=[],
+            dns=[],
+            auth=[],
+            prior_alert_count=0,
+            unavailable={"forecast": "the sidecar was unreachable"},
+            checked={"forecast": "ran and found nothing"},
+        )

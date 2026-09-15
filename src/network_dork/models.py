@@ -132,6 +132,12 @@ class AlertContext(DataModel):
     # None means unavailable; zero means queried and no matches.
     prior_alert_count: int | None = Field(ge=0)
     unavailable: dict[EvidenceKind, NonEmpty]
+    # Queried successfully, nothing noteworthy found. A forecaster that runs
+    # and reports no deviation is a result, not a gap, and reporting it
+    # through `unavailable` put a finding in the field that means absence --
+    # after which a model read it back out and wrote "within the expected
+    # range as per the forecast evidence" about evidence it never received.
+    checked: dict[EvidenceKind, NonEmpty] = Field(default_factory=dict)
     # Records dropped to keep the prompt inside its budget, per kind. The
     # model is told what it is not seeing rather than left to assume it has
     # the whole picture.
@@ -152,6 +158,17 @@ class AlertContext(DataModel):
                     raise ValueError(f"Wrong evidence kind in {kind}")
                 if not self.window_start <= record.timestamp <= self.window_end:
                     raise ValueError("Evidence timestamp outside context window")
+        both = set(self.checked) & set(self.unavailable)
+        if both:
+            raise ValueError(
+                f"{sorted(both)} cannot be both checked and unavailable"
+            )
+        for kind in self.checked:
+            records = getattr(self, kind, None)
+            if isinstance(records, list) and records:
+                raise ValueError(
+                    f"{kind} is populated, so it is not an empty check"
+                )
         missing_count = self.prior_alert_count is None
         if missing_count != ("prior_alerts" in self.unavailable):
             raise ValueError(

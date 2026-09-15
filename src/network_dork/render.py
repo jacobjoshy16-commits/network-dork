@@ -54,6 +54,9 @@ def render_evidence(context: AlertContext) -> str:
     for kind, count in counts:
         if kind in context.unavailable:
             lines.append(f"  {kind:<10} unavailable - {context.unavailable[kind]}")
+        elif kind in context.checked:
+            # Queried and clean, which is a result rather than a gap.
+            lines.append(f"  {kind:<10} checked  - {context.checked[kind]}")
         else:
             dropped = context.truncated.get(kind, 0)
             extra = f"  ({dropped} more not shown)" if dropped else ""
@@ -71,6 +74,9 @@ def render_evidence(context: AlertContext) -> str:
 def render_forecast(context: AlertContext) -> str:
     """Spell out each forecast observation in words, not just numbers."""
     if not context.forecast:
+        note = context.checked.get("forecast")
+        if note:
+            return f"  no deviation - {note}"
         reason = context.unavailable.get("forecast")
         return f"  none - {reason}" if reason else "  none"
 
@@ -144,6 +150,12 @@ def render_report(
     out.append("BASED ON")
     for line in _cited(report.context_used):
         out.append(line)
+
+    if context is not None and context.checked:
+        out.append("")
+        out.append("CHECKED, NOTHING FOUND")
+        for kind, note in sorted(context.checked.items()):
+            out.append(f"  - {kind}: {note}")
 
     if context is not None and context.unavailable:
         out.append("")
